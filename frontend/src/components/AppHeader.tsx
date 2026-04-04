@@ -9,6 +9,7 @@ interface AppHeaderProps {
   appNeedsUpdate: boolean;
   coreNeedsUpdate: boolean;
   onViewChange: (view: ViewMode) => void;
+  onCheckUpdates: () => void;
   onUpdateApp: () => void;
   onUpdateCore: () => void;
   onOpenDataDir: () => void;
@@ -24,6 +25,7 @@ export function AppHeader({
   appNeedsUpdate,
   coreNeedsUpdate,
   onViewChange,
+  onCheckUpdates,
   onUpdateApp,
   onUpdateCore,
   onOpenDataDir,
@@ -83,20 +85,34 @@ export function AppHeader({
             <span>网络</span>
             <strong>{state.githubNetworkLabel || '自动检测'}</strong>
           </div>
-          <div className="meta-pill version-pill">
+          <button
+            type="button"
+            className="meta-pill version-pill version-pill-button"
+            disabled={busyAction !== ''}
+            onClick={onCheckUpdates}
+            title="点击手动查询是否有新版本"
+            aria-label="点击手动查询应用是否有新版本"
+          >
             <span>应用</span>
             <div className="meta-pill-body">
               <strong>{appVersion}</strong>
               <small className={appStatusClass}>{appHint}</small>
             </div>
-          </div>
-          <div className="meta-pill version-pill">
+          </button>
+          <button
+            type="button"
+            className="meta-pill version-pill version-pill-button"
+            disabled={busyAction !== ''}
+            onClick={onCheckUpdates}
+            title="点击手动查询是否有新版本"
+            aria-label="点击手动查询核心是否有新版本"
+          >
             <span>核心</span>
             <div className="meta-pill-body">
               <strong>{coreVersion}</strong>
               <small className={versionStatusClass}>{coreHint}</small>
             </div>
-          </div>
+          </button>
         </div>
 
         <div className="menu-actions">

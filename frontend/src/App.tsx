@@ -171,6 +171,7 @@ function App() {
         appNeedsUpdate={appNeedsUpdate}
         coreNeedsUpdate={coreNeedsUpdate}
         onViewChange={setView}
+        onCheckUpdates={() => void runAction('check', CheckUpdates)}
         onUpdateApp={() => void runAction('app', UpdateApp)}
         onUpdateCore={() => void runAction('core', UpdateCore)}
         onOpenDataDir={openDataDir}
