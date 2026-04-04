@@ -64,6 +64,15 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build
 
 如果本机全局 `wails` 版本低于 `2.12.0`，请优先使用上面的 `go run` 方式。
 
+## 发布
+
+已配置 GitHub Actions 自动发布流程：
+
+- 推送任意 tag 时触发，例如 `v1.0.0`
+- 分别在 Windows、Linux、macOS 上构建 Wails 应用
+- 自动创建 GitHub Release 并上传各平台压缩包
+- 同时生成 `SHA256SUMS.txt` 校验文件
+
 ## 当前默认值
 
 - 托管实例只管理 easy-cpa 自己下载的单实例 CPA
