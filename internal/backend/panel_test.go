@@ -29,6 +29,9 @@ func TestInjectManagedPanelTheme(t *testing.T) {
 	if !strings.Contains(html, `--bg-primary: #12100d;`) {
 		t.Fatalf("dark theme variables not found")
 	}
+	if !strings.Contains(html, `.theme-menu + button {`) {
+		t.Fatalf("managed header button override not found")
+	}
 	if !strings.Contains(html, "</style></head>") {
 		t.Fatalf("dark theme should be injected before head end")
 	}

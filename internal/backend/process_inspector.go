@@ -30,9 +30,16 @@ func (p ListeningProcess) IsManagedProcess(managedBinaryPath, configPath string)
 	if normalizedBinary == "" {
 		return false
 	}
+	normalizedConfig := normalizeComparablePath(configPath)
+	managedRoot := normalizeComparablePath(filepath.Dir(normalizedConfig))
 
 	// 进程路径可读时，直接按核心二进制路径匹配。
 	if normalizeComparablePath(p.ExecutablePath) == normalizedBinary {
+		return true
+	}
+
+	// 进程路径落在 easy-cpa 托管目录内时，也视为托管实例。
+	if managedRoot != "" && hasComparablePathPrefix(p.ExecutablePath, managedRoot) {
 		return true
 	}
 
@@ -43,14 +50,22 @@ func (p ListeningProcess) IsManagedProcess(managedBinaryPath, configPath string)
 
 	// 命令行至少要命中托管核心路径，避免误杀其他进程。
 	if !containsComparablePath(p.CommandLine, normalizedBinary) {
-		return false
+		// 某些平台或权限场景下命令行可能只有简短路径，此时回退到托管目录判断。
+		if managedRoot == "" || !containsComparablePath(p.CommandLine, managedRoot) {
+			return false
+		}
 	}
 
 	// 配置路径为空时，仅凭二进制路径即可视为托管实例。
 	if strings.TrimSpace(configPath) == "" {
 		return true
 	}
-	return containsComparablePath(p.CommandLine, configPath)
+	if containsComparablePath(p.CommandLine, configPath) {
+		return true
+	}
+
+	// 某些遗留实例可能省略了完整配置路径，但仍位于托管目录下。
+	return managedRoot != "" && containsComparablePath(p.CommandLine, managedRoot)
 }
 
 // FindListeningProcess 查找占用指定 TCP 端口的监听进程。
@@ -69,6 +84,18 @@ func FindListeningProcess(port int) (ListeningProcess, error) {
 func terminatePID(pid int) error {
 	if pid <= 0 {
 		return nil
+	}
+	// Windows 下优先使用 taskkill，确保遗留监听进程及其子进程被一并清理。
+	if runtime.GOOS == "windows" {
+		cmd := newBackgroundCommand("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F")
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		message := strings.ToLower(strings.TrimSpace(string(output)))
+		if strings.Contains(message, "not found") || strings.Contains(message, "no running instance") {
+			return nil
+		}
 	}
 	process, err := os.FindProcess(pid)
 	if err != nil {
@@ -211,6 +238,19 @@ func containsComparablePath(commandLine, path string) bool {
 	}
 	normalizedLine := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(commandLine), `\`, `/`))
 	return strings.Contains(normalizedLine, normalizedPath)
+}
+
+// hasComparablePathPrefix 判断某个路径是否位于指定目录下。
+func hasComparablePathPrefix(pathValue, parent string) bool {
+	normalizedPath := normalizeComparablePath(pathValue)
+	normalizedParent := normalizeComparablePath(parent)
+	if normalizedPath == "" || normalizedParent == "" {
+		return false
+	}
+	if normalizedPath == normalizedParent {
+		return true
+	}
+	return strings.HasPrefix(normalizedPath, normalizedParent+"/")
 }
 
 // parseUnixLsof 解析 lsof 输出。

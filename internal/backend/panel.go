@@ -165,7 +165,7 @@ func BuildManagedPanelHTML(panelHTMLPath string) (string, error) {
 	return InjectManagedPanelTheme(string(raw)), nil
 }
 
-// InjectManagedPanelTheme 给官方管理页注入暗色变量覆盖。
+// InjectManagedPanelTheme 给官方管理页注入暗色变量，并隐藏由 easy-cpa 接管的头部按钮。
 func InjectManagedPanelTheme(html string) string {
 	injection := `<style id="easy-cpa-dark-theme">
 :root {
@@ -218,6 +218,10 @@ func InjectManagedPanelTheme(html string) string {
 html, body, #root {
   background: var(--bg-primary) !important;
   color: var(--text-primary) !important;
+}
+.theme-menu,
+.theme-menu + button {
+  display: none !important;
 }
 </style>`
 	if strings.Contains(html, `id="easy-cpa-dark-theme"`) {

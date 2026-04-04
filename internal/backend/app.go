@@ -511,13 +511,15 @@ func (a *App) refreshState(markReady bool) {
 	a.state.GithubProxyMode = a.proxy.CurrentMode()
 	a.state.GithubNetworkLabel = a.proxy.CurrentLabel()
 	a.state.NetworkSettings = a.settings.NetworkSettings()
-	lastError := runtimeState.LastError
+	lastError := strings.TrimSpace(runtimeState.LastError)
 	if lastError == "" {
-		lastError = a.state.LastError
+		lastError = strings.TrimSpace(a.release.LastError())
 	}
-	a.state.LastError = lastError
-	if a.state.LastError == "" {
-		a.state.LastError = a.release.LastError()
+	// 核心已恢复健康或引导完成时，主动清空历史错误，避免前端长期显示陈旧异常。
+	if markReady || runtimeState.ManagementHealthy {
+		a.state.LastError = ""
+	} else if lastError != "" {
+		a.state.LastError = lastError
 	}
 	a.state.RecentLogs = a.logs.List()
 	a.state.Port = configState.Port

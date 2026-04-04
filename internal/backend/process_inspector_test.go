@@ -30,21 +30,45 @@ func TestListeningProcessIsManagedProcessByExecutable(t *testing.T) {
 func TestListeningProcessIsManagedProcessByCommandLine(t *testing.T) {
 	process := ListeningProcess{
 		PID:         28568,
-		CommandLine: `"C:\Users\18217\AppData\Roaming\easy-cpa\core\cli-proxy-api.exe" -config "C:\Users\18217\AppData\Roaming\easy-cpa\config.yaml"`,
+		CommandLine: `"C:\Users\test\AppData\Roaming\easy-cpa\core\cli-proxy-api.exe" -config "C:\Users\test\AppData\Roaming\easy-cpa\config.yaml"`,
 	}
-	if !process.IsManagedProcess(`C:\Users\18217\AppData\Roaming\easy-cpa\core\cli-proxy-api.exe`, `C:\Users\18217\AppData\Roaming\easy-cpa\config.yaml`) {
+	if !process.IsManagedProcess(`C:\Users\test\AppData\Roaming\easy-cpa\core\cli-proxy-api.exe`, `C:\Users\test\AppData\Roaming\easy-cpa\config.yaml`) {
 		t.Fatalf("应通过命令行识别为托管核心: %+v", process)
+	}
+}
+
+// TestListeningProcessIsManagedProcessByManagedRoot 验证位于托管目录内的遗留进程也会被识别。
+func TestListeningProcessIsManagedProcessByManagedRoot(t *testing.T) {
+	process := ListeningProcess{
+		PID:            28568,
+		ExecutablePath: `C:\Users\test\AppData\Roaming\easy-cpa\core\cli-proxy-api.exe`,
+		CommandLine:    `C:\Users\test\AppData\Roaming\easy-cpa\core\cli-proxy-api.exe -config C:\Users\test\AppData\Roaming\easy-cpa\custom.yaml`,
+	}
+	if !process.IsManagedProcess(`C:\Users\test\AppData\Roaming\easy-cpa\core\cli-proxy-api.exe`, `C:\Users\test\AppData\Roaming\easy-cpa\config.yaml`) {
+		t.Fatalf("应通过托管目录识别为托管核心: %+v", process)
+	}
+}
+
+// TestListeningProcessIsManagedProcessRejectsExternal 验证外部同名进程不会被误识别。
+func TestListeningProcessIsManagedProcessRejectsExternal(t *testing.T) {
+	process := ListeningProcess{
+		PID:            28568,
+		ExecutablePath: `C:\Tools\cli-proxy-api.exe`,
+		CommandLine:    `C:\Tools\cli-proxy-api.exe -config C:\Temp\config.yaml`,
+	}
+	if process.IsManagedProcess(`C:\Users\18217\AppData\Roaming\easy-cpa\core\cli-proxy-api.exe`, `C:\Users\18217\AppData\Roaming\easy-cpa\config.yaml`) {
+		t.Fatalf("不应把外部进程识别为托管核心: %+v", process)
 	}
 }
 
 // TestParseWindowsProcessJSON 验证 Windows 进程 JSON 解析。
 func TestParseWindowsProcessJSON(t *testing.T) {
-	raw := []byte(`{"ExecutablePath":"C:\\Users\\18217\\AppData\\Roaming\\easy-cpa\\core\\cli-proxy-api.exe","CommandLine":"C:\\Users\\18217\\AppData\\Roaming\\easy-cpa\\core\\cli-proxy-api.exe -config C:\\Users\\18217\\AppData\\Roaming\\easy-cpa\\config.yaml","StartedAt":"2026-04-04T22:10:00+08:00"}`)
+	raw := []byte(`{"ExecutablePath":"C:\\Users\\test\\AppData\\Roaming\\easy-cpa\\core\\cli-proxy-api.exe","CommandLine":"C:\\Users\\test\\AppData\\Roaming\\easy-cpa\\core\\cli-proxy-api.exe -config C:\\Users\\test\\AppData\\Roaming\\easy-cpa\\config.yaml","StartedAt":"2026-04-04T22:10:00+08:00"}`)
 	process := ListeningProcess{PID: 28568}
 	if err := parseWindowsProcessJSON(raw, &process); err != nil {
 		t.Fatalf("解析进程 JSON 失败: %v", err)
 	}
-	if !process.IsManagedProcess(`C:\Users\18217\AppData\Roaming\easy-cpa\core\cli-proxy-api.exe`, `C:\Users\18217\AppData\Roaming\easy-cpa\config.yaml`) {
+	if !process.IsManagedProcess(`C:\Users\test\AppData\Roaming\easy-cpa\core\cli-proxy-api.exe`, `C:\Users\test\AppData\Roaming\easy-cpa\config.yaml`) {
 		t.Fatalf("应识别为托管核心: %+v", process)
 	}
 	if process.StartedAt.IsZero() {

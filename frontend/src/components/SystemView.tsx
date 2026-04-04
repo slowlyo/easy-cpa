@@ -49,6 +49,10 @@ export function SystemView({
   onUpdateCore,
   onSaveNetworkSettings,
 }: SystemViewProps) {
+  const runtimeSummary = state.bootstrapDetail || (state.coreRunning
+    ? '当前托管实例状态正常。'
+    : (state.coreInstalled ? '当前核心已安装但未运行。' : '当前尚未安装核心。'));
+
   return (
     <section className={visible ? 'system-view active' : 'system-view hidden'}>
       <div className="system-layout">
@@ -56,7 +60,7 @@ export function SystemView({
           <article className="hero-card hero-card-primary">
             <span className="eyebrow">运行状态</span>
             <strong>{state.coreRunning ? '核心运行中' : (state.coreInstalled ? '核心未运行' : '核心未安装')}</strong>
-            <p>{state.process?.lastError || state.bootstrapDetail || '当前托管实例状态正常。'}</p>
+            <p>{runtimeSummary}</p>
           </article>
           <article className="hero-card">
             <span className="eyebrow">本地接口</span>

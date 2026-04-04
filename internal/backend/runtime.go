@@ -341,6 +341,9 @@ func (r *CoreRuntime) reconcileExistingProcessLocked(ctx context.Context, config
 
 	var logs []string
 	managed := process.IsManagedProcess(r.paths.CoreBinaryPath, configState.ConfigPath)
+	if !managed && normalizeComparablePath(process.ExecutablePath) == normalizeComparablePath(r.paths.CoreBinaryPath) {
+		managed = true
+	}
 	// 命中托管实例时，统一清理遗留进程，避免异常退出后残留旧状态。
 	if managed {
 		logs = append(logs, fmt.Sprintf("检测到 Easy CPA 遗留核心占用端口 %d，正在清理进程 PID=%d。", configState.Port, process.PID))

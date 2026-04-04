@@ -159,6 +159,8 @@ function App() {
   const coreNeedsUpdate = Boolean(state.coreVersion && state.coreLatestVersion && state.coreVersion !== state.coreLatestVersion);
   const panelNeedsUpdate = Boolean(state.panelVersion && state.panelLatestVersion && state.panelVersion !== state.panelLatestVersion);
   const appNeedsUpdate = Boolean(state.appNeedsUpdate);
+  const globalNotice = notice;
+  const shouldShowGlobalNotice = Boolean(globalNotice) && view === 'system';
 
   return (
     <div className="shell">
@@ -175,8 +177,8 @@ function App() {
       />
 
       <main className={view === 'panel' ? 'content content-panel' : 'content content-system'}>
-        {notice || state.lastError ? (
-          <div className="notice error">{notice || state.lastError}</div>
+        {shouldShowGlobalNotice ? (
+          <div className="notice error">{globalNotice}</div>
         ) : null}
 
         <PanelView
