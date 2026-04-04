@@ -27,6 +27,29 @@ func TestExpectedCoreAssetSuffixFor(t *testing.T) {
 	}
 }
 
+// TestExpectedAppAssetSuffixFor 验证应用资产映射。
+func TestExpectedAppAssetSuffixFor(t *testing.T) {
+	tests := []struct {
+		name string
+		goos string
+		want string
+	}{
+		{name: "windows", goos: "windows", want: "-windows.zip"},
+		{name: "linux", goos: "linux", want: "-linux.tar.gz"},
+		{name: "darwin", goos: "darwin", want: "-macos.zip"},
+	}
+
+	for _, testCase := range tests {
+		got, err := expectedAppAssetSuffixFor(testCase.goos)
+		if err != nil {
+			t.Fatalf("%s returned error: %v", testCase.name, err)
+		}
+		if got != testCase.want {
+			t.Fatalf("%s got %s want %s", testCase.name, got, testCase.want)
+		}
+	}
+}
+
 // TestCompareReleaseTags 验证版本比较逻辑。
 func TestCompareReleaseTags(t *testing.T) {
 	if CompareReleaseTags("v6.9.13", "v6.9.14") >= 0 {

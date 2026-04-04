@@ -23,20 +23,21 @@ const (
 
 // App 负责聚合 easy-cpa 的全部运行状态。
 type App struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	paths       ManagedPaths
-	settings    *SettingsStore
-	proxy       *ProxyManager
-	release     *ReleaseManager
-	config      *ConfigManager
-	logs        *LogBuffer
-	panel       *PanelManager
-	runtime     *CoreRuntime
-	mu          sync.RWMutex
-	state       BootstrapState
-	bootOnce    sync.Once
-	bootRunning bool
+	ctx              context.Context
+	cancel           context.CancelFunc
+	paths            ManagedPaths
+	settings         *SettingsStore
+	proxy            *ProxyManager
+	release          *ReleaseManager
+	config           *ConfigManager
+	logs             *LogBuffer
+	panel            *PanelManager
+	runtime          *CoreRuntime
+	mu               sync.RWMutex
+	state            BootstrapState
+	bootOnce         sync.Once
+	bootRunning      bool
+	closingForUpdate bool
 }
 
 // NewApp 创建应用主实例。
@@ -65,6 +66,7 @@ func NewApp() *App {
 			BootstrapPhase:     stateBootstrapIdle,
 			BootstrapStep:      "等待启动",
 			BootstrapDetail:    "应用尚未开始初始化。",
+			AppVersion:         CurrentAppVersion(),
 			GithubProxyMode:    proxy.CurrentMode(),
 			GithubNetworkLabel: proxy.CurrentLabel(),
 			BootstrapHistory:   []BootstrapProgress{},
@@ -97,6 +99,13 @@ func (a *App) Shutdown(ctx context.Context) {
 
 // BeforeClose 在关闭窗口前提醒核心也会一起停止。
 func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
+	a.mu.RLock()
+	closingForUpdate := a.closingForUpdate
+	a.mu.RUnlock()
+	// 更新流程主动退出时直接放行，避免再次打断。
+	if closingForUpdate {
+		return false
+	}
 	// 核心未运行时直接允许关闭，避免无意义打断。
 	if !a.runtime.IsRunning() {
 		return false
@@ -172,6 +181,51 @@ func (a *App) CheckUpdates() (BootstrapState, error) {
 		return a.snapshotState(), err
 	}
 	a.refreshState(false)
+	return a.snapshotState(), nil
+}
+
+// UpdateApp 下载最新应用并在退出后自动替换重启。
+func (a *App) UpdateApp() (BootstrapState, error) {
+	if a.ctx == nil {
+		err := errors.New("应用上下文未初始化")
+		a.setLastError(err)
+		return a.snapshotState(), err
+	}
+	meta, err := a.release.FetchLatestAppRelease(a.ctx)
+	if err != nil {
+		a.setLastError(err)
+		return a.snapshotState(), err
+	}
+	if meta.Tag == "" {
+		err := errors.New("未获取到应用发布信息")
+		a.setLastError(err)
+		return a.snapshotState(), err
+	}
+	currentVersion := CurrentAppVersion()
+	if currentVersion != "dev" && CompareReleaseTags(currentVersion, meta.Tag) >= 0 {
+		a.refreshState(false)
+		return a.snapshotState(), nil
+	}
+	a.emitBootstrapProgress("准备应用更新", fmt.Sprintf("正在下载 Easy CPA %s 并准备重启更新。", meta.Tag))
+	if err := a.prepareSelfUpdate(a.ctx, meta); err != nil {
+		a.setLastError(err)
+		return a.snapshotState(), err
+	}
+	a.mu.Lock()
+	a.closingForUpdate = true
+	a.state.LastError = ""
+	a.state.BootstrapPhase = stateBootstrapRun
+	a.state.BootstrapStep = "应用更新中"
+	a.state.BootstrapDetail = fmt.Sprintf("已下载 %s，正在退出并自动重启完成更新。", meta.Tag)
+	a.state.BootstrapUpdatedAt = time.Now()
+	a.appendBootstrapHistoryLocked("应用更新中", a.state.BootstrapDetail)
+	a.mu.Unlock()
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		if a.ctx != nil {
+			wruntime.Quit(a.ctx)
+		}
+	}()
 	return a.snapshotState(), nil
 }
 
@@ -413,6 +467,10 @@ func (a *App) refreshLatestReleases() error {
 	if _, err := a.release.FetchLatestPanelRelease(a.ctx); err != nil {
 		errs = append(errs, fmt.Errorf("获取管理页发布失败: %w", err))
 	}
+	a.emitBootstrapProgress("检查应用版本", "正在读取 Easy CPA latest release。")
+	if _, err := a.release.FetchLatestAppRelease(a.ctx); err != nil {
+		a.setSoftError(fmt.Errorf("获取应用发布失败: %w", err))
+	}
 	a.emitNetworkStatus()
 	a.refreshState(false)
 
@@ -439,6 +497,9 @@ func (a *App) refreshState(markReady bool) {
 	}
 
 	a.state.CoreInstalled = FileExists(a.paths.CoreBinaryPath)
+	a.state.AppVersion = CurrentAppVersion()
+	a.state.AppLatestVersion = a.release.LatestApp().Tag
+	a.state.AppNeedsUpdate = a.state.AppLatestVersion != "" && a.state.AppVersion != "dev" && CompareReleaseTags(a.state.AppVersion, a.state.AppLatestVersion) < 0
 	a.state.CoreRunning = runtimeState.Running
 	a.state.CoreVersion = localCore.Tag
 	a.state.CoreLatestVersion = a.release.LatestCore().Tag

@@ -8,6 +8,7 @@ import {
   SaveNetworkSettings,
   StartCore,
   StopCore,
+  UpdateApp,
   UpdateCore,
   UpdatePanel,
 } from '../wailsjs/go/backend/App';
@@ -157,6 +158,7 @@ function App() {
 
   const coreNeedsUpdate = Boolean(state.coreVersion && state.coreLatestVersion && state.coreVersion !== state.coreLatestVersion);
   const panelNeedsUpdate = Boolean(state.panelVersion && state.panelLatestVersion && state.panelVersion !== state.panelLatestVersion);
+  const appNeedsUpdate = Boolean(state.appNeedsUpdate);
 
   return (
     <div className="shell">
@@ -164,8 +166,10 @@ function App() {
         view={view}
         state={state}
         busyAction={busyAction}
+        appNeedsUpdate={appNeedsUpdate}
         coreNeedsUpdate={coreNeedsUpdate}
         onViewChange={setView}
+        onUpdateApp={() => void runAction('app', UpdateApp)}
         onUpdateCore={() => void runAction('core', UpdateCore)}
         onOpenDataDir={openDataDir}
       />
@@ -188,6 +192,7 @@ function App() {
           networkSettings={networkSettings}
           logFilter={logFilter}
           filteredLogs={filteredLogs}
+          appNeedsUpdate={appNeedsUpdate}
           coreNeedsUpdate={coreNeedsUpdate}
           panelNeedsUpdate={panelNeedsUpdate}
           onLogFilterChange={setLogFilter}
@@ -202,6 +207,7 @@ function App() {
           onStartCore={() => void runAction('start', StartCore)}
           onStopCore={() => void runAction('stop', StopCore)}
           onRestartCore={() => void runAction('restart', RestartCore)}
+          onUpdateApp={() => void runAction('app', UpdateApp)}
           onCheckUpdates={() => void runAction('check', CheckUpdates)}
           onUpdatePanel={() => void runAction('panel', UpdatePanel)}
           onUpdateCore={() => void runAction('core', UpdateCore)}

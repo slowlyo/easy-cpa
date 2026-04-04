@@ -23,12 +23,15 @@ jobs:
           - os: windows-latest
             platform: windows
             wails_build_flags: ""
+            wails_ldflags: "-X easy-cpa/internal/backend.AppVersion=${{ github.ref_name }}"
           - os: ubuntu-latest
             platform: linux
             wails_build_flags: "-tags webkit2_41"
+            wails_ldflags: "-X easy-cpa/internal/backend.AppVersion=${{ github.ref_name }}"
           - os: macos-latest
             platform: macos
             wails_build_flags: ""
+            wails_ldflags: "-X easy-cpa/internal/backend.AppVersion=${{ github.ref_name }}"
 
     steps:
       - name: 检出代码
@@ -56,7 +59,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev
 
       - name: 构建 Wails 应用
-        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build ${{ matrix.wails_build_flags }}
+        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build ${{ matrix.wails_build_flags }} -ldflags "${{ matrix.wails_ldflags }}"
 
       - name: 打包 Windows 产物
         if: runner.os == 'Windows'

@@ -12,8 +12,8 @@ import (
 	"strings"
 )
 
-// extractCoreAsset 解压核心资产并保留原始可执行文件名。
-func extractCoreAsset(archivePath, targetDir string) error {
+// extractArchive 按压缩格式解压资产。
+func extractArchive(archivePath, targetDir string) error {
 	if strings.HasSuffix(strings.ToLower(archivePath), ".zip") {
 		return extractZipFile(archivePath, targetDir)
 	}
@@ -21,6 +21,11 @@ func extractCoreAsset(archivePath, targetDir string) error {
 		return extractTarGzFile(archivePath, targetDir)
 	}
 	return fmt.Errorf("不支持的压缩格式: %s", archivePath)
+}
+
+// extractCoreAsset 解压核心资产并保留原始可执行文件名。
+func extractCoreAsset(archivePath, targetDir string) error {
+	return extractArchive(archivePath, targetDir)
 }
 
 // extractZipFile 解压 zip 文件。

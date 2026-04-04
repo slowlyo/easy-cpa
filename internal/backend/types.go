@@ -16,6 +16,9 @@ type BootstrapState struct {
 	BootstrapDetail      string              `json:"bootstrapDetail"`
 	BootstrapUpdatedAt   time.Time           `json:"bootstrapUpdatedAt"`
 	BootstrapHistory     []BootstrapProgress `json:"bootstrapHistory"`
+	AppVersion           string              `json:"appVersion"`
+	AppLatestVersion     string              `json:"appLatestVersion"`
+	AppNeedsUpdate       bool                `json:"appNeedsUpdate"`
 	CoreInstalled        bool                `json:"coreInstalled"`
 	CoreRunning          bool                `json:"coreRunning"`
 	CoreVersion          string              `json:"coreVersion"`

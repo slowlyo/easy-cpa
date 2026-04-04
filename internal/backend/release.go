@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	appLatestReleaseAPI   = "https://api.github.com/repos/slowlyo/easy-cpa/releases/latest"
 	coreLatestReleaseAPI  = "https://api.github.com/repos/router-for-me/CLIProxyAPI/releases/latest"
 	panelLatestReleaseAPI = "https://api.github.com/repos/router-for-me/Cli-Proxy-API-Management-Center/releases/latest"
 )
@@ -37,6 +38,7 @@ type githubReleaseAsset struct {
 type ReleaseManager struct {
 	proxy       *ProxyManager
 	mu          sync.RWMutex
+	latestApp   ReleaseMeta
 	latestCore  ReleaseMeta
 	latestPanel ReleaseMeta
 	lastError   string
@@ -45,6 +47,13 @@ type ReleaseManager struct {
 // NewReleaseManager 创建发布管理器。
 func NewReleaseManager(proxy *ProxyManager) *ReleaseManager {
 	return &ReleaseManager{proxy: proxy}
+}
+
+// LatestApp 返回缓存的应用发布信息。
+func (r *ReleaseManager) LatestApp() ReleaseMeta {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.latestApp
 }
 
 // LatestCore 返回缓存的核心发布信息。
@@ -73,9 +82,23 @@ func (r *ReleaseManager) HasAnyLocalAsset(paths ManagedPaths) bool {
 	return FileExists(paths.CoreBinaryPath) || FileExists(paths.PanelHTMLPath)
 }
 
+// FetchLatestAppRelease 获取最新应用发布。
+func (r *ReleaseManager) FetchLatestAppRelease(ctx context.Context) (ReleaseMeta, error) {
+	meta, err := r.fetchLatestRelease(ctx, appLatestReleaseAPI, pickAppAsset)
+	if err != nil {
+		r.setLastError(err)
+		return ReleaseMeta{}, err
+	}
+	r.mu.Lock()
+	r.latestApp = meta
+	r.lastError = ""
+	r.mu.Unlock()
+	return meta, nil
+}
+
 // FetchLatestCoreRelease 获取最新核心发布。
 func (r *ReleaseManager) FetchLatestCoreRelease(ctx context.Context) (ReleaseMeta, error) {
-	meta, err := r.fetchLatestRelease(ctx, coreLatestReleaseAPI, true)
+	meta, err := r.fetchLatestRelease(ctx, coreLatestReleaseAPI, pickCoreAsset)
 	if err != nil {
 		r.setLastError(err)
 		return ReleaseMeta{}, err
@@ -89,7 +112,7 @@ func (r *ReleaseManager) FetchLatestCoreRelease(ctx context.Context) (ReleaseMet
 
 // FetchLatestPanelRelease 获取最新管理页发布。
 func (r *ReleaseManager) FetchLatestPanelRelease(ctx context.Context) (ReleaseMeta, error) {
-	meta, err := r.fetchLatestRelease(ctx, panelLatestReleaseAPI, false)
+	meta, err := r.fetchLatestRelease(ctx, panelLatestReleaseAPI, pickPanelAsset)
 	if err != nil {
 		r.setLastError(err)
 		return ReleaseMeta{}, err
@@ -125,8 +148,10 @@ func (r *ReleaseManager) InstallCoreRelease(ctx context.Context, meta ReleaseMet
 	return WriteReleaseMetaFile(paths.CoreMetaPath, meta)
 }
 
+type releaseAssetPicker func(assets []githubReleaseAsset) (githubReleaseAsset, bool)
+
 // fetchLatestRelease 请求发布接口并匹配资产。
-func (r *ReleaseManager) fetchLatestRelease(ctx context.Context, endpoint string, core bool) (ReleaseMeta, error) {
+func (r *ReleaseManager) fetchLatestRelease(ctx context.Context, endpoint string, picker releaseAssetPicker) (ReleaseMeta, error) {
 	headers := map[string]string{
 		"Accept":               "application/vnd.github+json",
 		"User-Agent":           "easy-cpa",
@@ -137,13 +162,7 @@ func (r *ReleaseManager) fetchLatestRelease(ctx context.Context, endpoint string
 		return ReleaseMeta{}, err
 	}
 
-	var asset githubReleaseAsset
-	var ok bool
-	if core {
-		asset, ok = pickCoreAsset(payload.Assets)
-	} else {
-		asset, ok = pickPanelAsset(payload.Assets)
-	}
+	asset, ok := picker(payload.Assets)
 	if !ok {
 		return ReleaseMeta{}, errors.New("未找到匹配当前平台的发布资产")
 	}
@@ -239,6 +258,20 @@ func pickCoreAsset(assets []githubReleaseAsset) (githubReleaseAsset, bool) {
 	return githubReleaseAsset{}, false
 }
 
+// pickAppAsset 选择当前平台应用资产。
+func pickAppAsset(assets []githubReleaseAsset) (githubReleaseAsset, bool) {
+	suffix, err := expectedAppAssetSuffix()
+	if err != nil {
+		return githubReleaseAsset{}, false
+	}
+	for _, asset := range assets {
+		if strings.HasSuffix(asset.Name, suffix) {
+			return asset, true
+		}
+	}
+	return githubReleaseAsset{}, false
+}
+
 // pickPanelAsset 选择管理页资产。
 func pickPanelAsset(assets []githubReleaseAsset) (githubReleaseAsset, bool) {
 	for _, asset := range assets {
@@ -252,6 +285,25 @@ func pickPanelAsset(assets []githubReleaseAsset) (githubReleaseAsset, bool) {
 // expectedCoreAssetSuffix 计算当前平台资产后缀。
 func expectedCoreAssetSuffix() (string, error) {
 	return expectedCoreAssetSuffixFor(runtime.GOOS, runtime.GOARCH)
+}
+
+// expectedAppAssetSuffix 计算当前平台应用资产后缀。
+func expectedAppAssetSuffix() (string, error) {
+	return expectedAppAssetSuffixFor(runtime.GOOS)
+}
+
+// expectedAppAssetSuffixFor 根据平台计算应用资产后缀。
+func expectedAppAssetSuffixFor(goos string) (string, error) {
+	switch goos {
+	case "windows":
+		return "-windows.zip", nil
+	case "linux":
+		return "-linux.tar.gz", nil
+	case "darwin":
+		return "-macos.zip", nil
+	default:
+		return "", fmt.Errorf("不支持当前平台: %s", goos)
+	}
 }
 
 // expectedCoreAssetSuffixFor 根据平台计算资产后缀。

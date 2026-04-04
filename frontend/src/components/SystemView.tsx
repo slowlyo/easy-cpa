@@ -8,6 +8,7 @@ interface SystemViewProps {
   networkSettings: backend.NetworkSettings;
   logFilter: string;
   filteredLogs: backend.LogEntry[];
+  appNeedsUpdate: boolean;
   coreNeedsUpdate: boolean;
   panelNeedsUpdate: boolean;
   onLogFilterChange: (value: string) => void;
@@ -16,6 +17,7 @@ interface SystemViewProps {
   onStartCore: () => void;
   onStopCore: () => void;
   onRestartCore: () => void;
+  onUpdateApp: () => void;
   onCheckUpdates: () => void;
   onUpdatePanel: () => void;
   onUpdateCore: () => void;
@@ -32,6 +34,7 @@ export function SystemView({
   networkSettings,
   logFilter,
   filteredLogs,
+  appNeedsUpdate,
   coreNeedsUpdate,
   panelNeedsUpdate,
   onLogFilterChange,
@@ -40,6 +43,7 @@ export function SystemView({
   onStartCore,
   onStopCore,
   onRestartCore,
+  onUpdateApp,
   onCheckUpdates,
   onUpdatePanel,
   onUpdateCore,
@@ -67,6 +71,11 @@ export function SystemView({
         </section>
 
         <div className="card-grid">
+          <article className="card stat-card">
+            <span className="eyebrow">应用版本</span>
+            <strong>{state.appVersion || '开发版'}</strong>
+            <span>最新：{state.appLatestVersion || '未知'}</span>
+          </article>
           <article className="card stat-card">
             <span className="eyebrow">核心状态</span>
             <strong>{state.coreRunning ? '运行中' : (state.coreInstalled ? '已停止' : '未安装')}</strong>
@@ -101,11 +110,13 @@ export function SystemView({
               <button disabled={busyAction !== '' || !state.coreInstalled} onClick={onRestartCore}>重启核心</button>
             </div>
             <div className="button-row">
+              <button disabled={busyAction !== '' || !appNeedsUpdate} onClick={onUpdateApp}>更新应用</button>
               <button disabled={busyAction !== ''} onClick={onCheckUpdates}>检查更新</button>
               <button disabled={busyAction !== '' || !panelNeedsUpdate} onClick={onUpdatePanel}>更新管理页</button>
               <button disabled={busyAction !== '' || !coreNeedsUpdate} onClick={onUpdateCore}>更新核心</button>
             </div>
             <div className="meta-list">
+              <div><span>应用更新提示</span><strong>{appNeedsUpdate ? '可更新' : (state.appVersion === 'dev' ? '开发版' : '已最新或未知')}</strong></div>
               <div><span>核心更新提示</span><strong>{coreNeedsUpdate ? '可更新' : '已最新或未知'}</strong></div>
               <div><span>面板更新提示</span><strong>{panelNeedsUpdate ? '可更新' : '已最新或未知'}</strong></div>
               <div><span>最近启动时间</span><strong>{formatStartedAt(state.process)}</strong></div>

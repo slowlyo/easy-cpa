@@ -6,8 +6,10 @@ interface AppHeaderProps {
   view: ViewMode;
   state: backend.BootstrapState;
   busyAction: string;
+  appNeedsUpdate: boolean;
   coreNeedsUpdate: boolean;
   onViewChange: (view: ViewMode) => void;
+  onUpdateApp: () => void;
   onUpdateCore: () => void;
   onOpenDataDir: () => void;
 }
@@ -19,11 +21,23 @@ export function AppHeader({
   view,
   state,
   busyAction,
+  appNeedsUpdate,
   coreNeedsUpdate,
   onViewChange,
+  onUpdateApp,
   onUpdateCore,
   onOpenDataDir,
 }: AppHeaderProps) {
+  const appVersion = state.appVersion || '开发版';
+  let appStatusClass = 'version-status pending';
+  let appHint = '未检测';
+  if (appNeedsUpdate) {
+    appStatusClass = 'version-status update';
+    appHint = `可更新到 ${state.appLatestVersion || '最新版本'}`;
+  } else if (state.appVersion) {
+    appStatusClass = 'version-status latest';
+    appHint = state.appVersion === 'dev' ? '开发版' : '已是最新版本';
+  }
   const coreVersion = state.coreVersion || '未安装';
   let versionStatusClass = 'version-status pending';
   let coreHint = '等待安装';
@@ -71,6 +85,13 @@ export function AppHeader({
           <strong>{state.githubNetworkLabel || '自动检测'}</strong>
         </div>
         <div className="meta-pill version-pill">
+          <span>应用</span>
+          <div className="meta-pill-body">
+            <strong>{appVersion}</strong>
+            <small className={appStatusClass}>{appHint}</small>
+          </div>
+        </div>
+        <div className="meta-pill version-pill">
           <span>核心</span>
           <div className="meta-pill-body">
             <strong>{coreVersion}</strong>
@@ -80,9 +101,18 @@ export function AppHeader({
       </div>
 
       <div className="menu-actions">
-        {coreNeedsUpdate ? (
+        {appNeedsUpdate ? (
           <button
             className="menu-button primary"
+            disabled={busyAction !== ''}
+            onClick={onUpdateApp}
+          >
+            更新应用
+          </button>
+        ) : null}
+        {coreNeedsUpdate ? (
+          <button
+            className="menu-button secondary"
             disabled={busyAction !== ''}
             onClick={onUpdateCore}
           >

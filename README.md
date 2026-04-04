@@ -11,6 +11,7 @@
 - 自动启动/停止本地单实例 CPA
 - 内嵌官方管理界面
 - 系统页展示版本、状态、代理、日志和更新操作
+- 支持检测 easy-cpa 自身最新 release，并执行应用自更新
 - GitHub 请求支持自定义代理与 `127.0.0.1:7890` / `127.0.0.1:7897` 回退
 
 ## 目录
@@ -72,6 +73,7 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build
 - 分别在 Windows、Linux、macOS 上构建 Wails 应用
 - macOS 默认使用 GitHub 当前提供的 `macos-latest` runner
 - Linux 默认按新发行版环境构建，并为 Wails 追加 `-tags webkit2_41`
+- 发布构建会把 tag 注入应用版本号，供桌面端自身更新检测使用
 - 自动创建 GitHub Release 并上传各平台压缩包
 - 同时生成 `SHA256SUMS.txt` 校验文件
 
