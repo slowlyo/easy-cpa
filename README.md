@@ -70,6 +70,8 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build
 
 - 推送任意 tag 时触发，例如 `v1.0.0`
 - 分别在 Windows、Linux、macOS 上构建 Wails 应用
+- macOS 默认使用 GitHub 当前提供的 `macos-latest` runner
+- Linux 默认按新发行版环境构建，并为 Wails 追加 `-tags webkit2_41`
 - 自动创建 GitHub Release 并上传各平台压缩包
 - 同时生成 `SHA256SUMS.txt` 校验文件
 

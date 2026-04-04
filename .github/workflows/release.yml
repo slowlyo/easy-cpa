@@ -22,10 +22,13 @@ jobs:
         include:
           - os: windows-latest
             platform: windows
+            wails_build_flags: ""
           - os: ubuntu-latest
             platform: linux
-          - os: macos-13
+            wails_build_flags: "-tags webkit2_41"
+          - os: macos-latest
             platform: macos
+            wails_build_flags: ""
 
     steps:
       - name: 检出代码
@@ -50,14 +53,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf
-          if apt-cache show libwebkit2gtk-4.1-dev >/dev/null 2>&1; then
-            sudo apt-get install -y libwebkit2gtk-4.1-dev
-          else
-            sudo apt-get install -y libwebkit2gtk-4.0-dev
-          fi
+          sudo apt-get install -y libwebkit2gtk-4.1-dev
 
       - name: 构建 Wails 应用
-        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build
+        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build ${{ matrix.wails_build_flags }}
 
       - name: 打包 Windows 产物
         if: runner.os == 'Windows'
