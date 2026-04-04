@@ -1,0 +1,5 @@
+- 这是一个使用 Wails 开发的 APP, 目的是让用户更轻松使用 CPA(router-for-me/CLIProxyAPI) 的桌面应用
+- CPA 开放 API 文档: https://github.com/router-for-me/CLIProxyAPIDocs/blob/main/docs/en/management/api.md
+- CPA 官方仓库地址: https://github.com/router-for-me/CLIProxyAPI
+- CPA 官方管理界面仓库地址: https://github.com/router-for-me/Cli-Proxy-API-Management-Center
+- 应用需要多端兼容
