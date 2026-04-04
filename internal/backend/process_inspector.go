@@ -93,7 +93,7 @@ func waitPortReleased(port int, timeout time.Duration) error {
 
 // findListeningProcessWindows 通过 netstat 与 CIM 查询监听进程。
 func findListeningProcessWindows(port int) (ListeningProcess, error) {
-	output, err := exec.Command("netstat", "-ano", "-p", "tcp").Output()
+	output, err := newBackgroundCommand("netstat", "-ano", "-p", "tcp").Output()
 	if err != nil {
 		return ListeningProcess{}, fmt.Errorf("读取端口占用失败: %w", err)
 	}
@@ -106,7 +106,7 @@ func findListeningProcessWindows(port int) (ListeningProcess, error) {
 
 // findListeningProcessUnix 通过 lsof 查询监听进程。
 func findListeningProcessUnix(port int) (ListeningProcess, error) {
-	output, err := exec.Command("lsof", "-nP", fmt.Sprintf("-iTCP:%d", port), "-sTCP:LISTEN", "-Fpctn").Output()
+	output, err := newBackgroundCommand("lsof", "-nP", fmt.Sprintf("-iTCP:%d", port), "-sTCP:LISTEN", "-Fpctn").Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) == 0 {
 			return ListeningProcess{}, nil
@@ -159,7 +159,7 @@ func parseWindowsNetstatPID(output string, port int) (int, error) {
 // readWindowsProcess 读取 Windows 进程的路径与命令行。
 func readWindowsProcess(pid int) (ListeningProcess, error) {
 	script := fmt.Sprintf(`$p = Get-CimInstance Win32_Process -Filter "ProcessId = %d"; if ($p) { [PSCustomObject]@{ ExecutablePath = $p.ExecutablePath; CommandLine = $p.CommandLine; StartedAt = ([System.Management.ManagementDateTimeConverter]::ToDateTime($p.CreationDate)).ToString('o') } | ConvertTo-Json -Compress }`, pid)
-	output, err := exec.Command("powershell", "-NoProfile", "-Command", script).Output()
+	output, err := newBackgroundCommand("powershell", "-NoProfile", "-Command", script).Output()
 	if err != nil {
 		return ListeningProcess{PID: pid}, nil
 	}
@@ -237,7 +237,7 @@ func parseUnixLsof(output []byte) ListeningProcess {
 
 // readUnixProcess 读取类 Unix 平台的进程命令行。
 func readUnixProcess(pid int) (string, string) {
-	output, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
+	output, err := newBackgroundCommand("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
 	if err != nil {
 		return "", ""
 	}
@@ -254,7 +254,7 @@ func readUnixProcess(pid int) (string, string) {
 
 // readUnixProcessStartTime 读取类 Unix 平台的进程启动时间。
 func readUnixProcessStartTime(pid int) time.Time {
-	output, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "lstart=").Output()
+	output, err := newBackgroundCommand("ps", "-p", strconv.Itoa(pid), "-o", "lstart=").Output()
 	if err != nil {
 		return time.Time{}
 	}

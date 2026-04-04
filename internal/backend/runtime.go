@@ -66,7 +66,7 @@ func (r *CoreRuntime) Start(ctx context.Context, configState ConfigState) error 
 		return nil
 	}
 
-	cmd := exec.CommandContext(ctx, r.paths.CoreBinaryPath, "-config", configState.ConfigPath)
+	cmd := newBackgroundCommandContext(ctx, r.paths.CoreBinaryPath, "-config", configState.ConfigPath)
 	cmd.Env = append(cmd.Environ(), "MANAGEMENT_PASSWORD="+r.settings.ManagementKey())
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
