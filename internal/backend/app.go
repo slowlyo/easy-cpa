@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,6 +93,40 @@ func (a *App) Shutdown(ctx context.Context) {
 	}
 	_ = a.runtime.Stop()
 	a.panel.Stop()
+}
+
+// BeforeClose 在关闭窗口前提醒核心也会一起停止。
+func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
+	// 核心未运行时直接允许关闭，避免无意义打断。
+	if !a.runtime.IsRunning() {
+		return false
+	}
+	result, err := wruntime.MessageDialog(ctx, wruntime.MessageDialogOptions{
+		Type:          wruntime.QuestionDialog,
+		Title:         "确认关闭 Easy CPA",
+		Message:       "关闭应用后，当前托管的 CPA 核心也会停止运行。确定继续关闭吗？",
+		DefaultButton: "No",
+		CancelButton:  "No",
+	})
+	// 弹窗失败时默认阻止关闭，避免用户在无感知时误停核心。
+	if err != nil {
+		entry := a.logs.Append("system", fmt.Sprintf("关闭确认弹窗失败: %v", err))
+		if entry.Message != "" {
+			a.emitCoreLog(entry)
+		}
+		return true
+	}
+	return !isCloseConfirmed(result)
+}
+
+// isCloseConfirmed 统一判断关闭确认弹窗的肯定结果。
+func isCloseConfirmed(result string) bool {
+	switch strings.ToLower(strings.TrimSpace(result)) {
+	case "yes", "ok", "关闭应用", "确认", "是":
+		return true
+	default:
+		return false
+	}
 }
 
 // GetBootstrapState 返回当前聚合状态。
