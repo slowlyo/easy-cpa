@@ -60,6 +60,28 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf
           sudo apt-get install -y libwebkit2gtk-4.1-dev
 
+      - name: 注入 Wails 版本号
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_VERSION#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "发布 tag 必须是 v1.2.3 或 1.2.3"
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = 'wails.json';
+          const version = (process.env.RELEASE_VERSION || '').replace(/^v/, '');
+          const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+          config.info = {
+            ...(config.info || {}),
+            productVersion: version,
+          };
+          fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+          NODE
+
       - name: 构建 Wails 应用
         shell: bash
         run: |
@@ -82,6 +104,17 @@ jobs:
           app_binary="${app_path}/Contents/MacOS/easy-cpa"
           if [ ! -f "$app_binary" ]; then
             echo "未找到 macOS 可执行文件: $app_binary"
+            exit 1
+          fi
+          plist_path="${app_path}/Contents/Info.plist"
+          plist_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist_path")"
+          if [ "$plist_executable" != "easy-cpa" ]; then
+            echo "CFBundleExecutable 配置错误: $plist_executable"
+            exit 1
+          fi
+          plist_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist_path")"
+          if [ "$plist_identifier" != "io.github.slowlyo.easy-cpa" ]; then
+            echo "CFBundleIdentifier 配置错误: $plist_identifier"
             exit 1
           fi
           archs="$(lipo -archs "$app_binary")"
