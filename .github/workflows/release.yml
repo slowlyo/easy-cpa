@@ -14,22 +14,24 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }}
+    name: Build ${{ matrix.artifact_name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
-            platform: windows
-            wails_build_flags: ""
+            artifact_name: windows
+            wails_platform: windows/amd64
             wails_ldflags: "-X easy-cpa/internal/backend.AppVersion=${{ github.ref_name }}"
           - os: ubuntu-latest
-            platform: linux
+            artifact_name: linux
+            wails_platform: linux/amd64
             wails_build_flags: "-tags webkit2_41"
             wails_ldflags: "-X easy-cpa/internal/backend.AppVersion=${{ github.ref_name }}"
           - os: macos-latest
-            platform: macos
+            artifact_name: macos
+            wails_platform: darwin/universal
             wails_build_flags: ""
             wails_ldflags: "-X easy-cpa/internal/backend.AppVersion=${{ github.ref_name }}"
 
@@ -59,7 +61,32 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev
 
       - name: 构建 Wails 应用
-        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build ${{ matrix.wails_build_flags }} -ldflags "${{ matrix.wails_ldflags }}"
+        shell: bash
+        run: |
+          extra_flags="${{ matrix.wails_build_flags }}"
+          if [ -n "$extra_flags" ]; then
+            go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build -platform "${{ matrix.wails_platform }}" $extra_flags -ldflags "${{ matrix.wails_ldflags }}"
+          else
+            go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build -platform "${{ matrix.wails_platform }}" -ldflags "${{ matrix.wails_ldflags }}"
+          fi
+
+      - name: 校验 macOS 通用架构
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app_path="$(find build/bin -maxdepth 1 -name '*.app' | head -n 1)"
+          if [ -z "$app_path" ]; then
+            echo "未找到 macOS .app 产物"
+            exit 1
+          fi
+          app_binary="${app_path}/Contents/MacOS/easy-cpa"
+          if [ ! -f "$app_binary" ]; then
+            echo "未找到 macOS 可执行文件: $app_binary"
+            exit 1
+          fi
+          archs="$(lipo -archs "$app_binary")"
+          echo "macOS binary archs: $archs"
+          [[ "$archs" == *"x86_64"* && "$archs" == *"arm64"* ]]
 
       - name: 打包 Windows 产物
         if: runner.os == 'Windows'
@@ -94,7 +121,7 @@ jobs:
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.platform }}
+          name: release-${{ matrix.artifact_name }}
           path: release/*
           if-no-files-found: error
 
