@@ -5,6 +5,7 @@ import {
   GetBootstrapState,
   OpenDataDir,
   RestartCore,
+  SaveCloseConfirmEnabled,
   SaveNetworkSettings,
   StartCore,
   StopCore,
@@ -215,6 +216,7 @@ function App() {
           onUpdatePanel={() => void runAction('panel', UpdatePanel)}
           onUpdateCore={() => void runAction('core', UpdateCore)}
           onSaveNetworkSettings={() => void runAction('network', () => SaveNetworkSettings(networkSettings))}
+          onCloseConfirmEnabledChange={(enabled) => void runAction('close-confirm', () => SaveCloseConfirmEnabled(enabled))}
         />
       </main>
     </div>

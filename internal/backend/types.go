@@ -47,6 +47,7 @@ type BootstrapState struct {
 	RecentLogs           []LogEntry          `json:"recentLogs"`
 	Process              CoreProcessState    `json:"process"`
 	NetworkSettings      NetworkSettings     `json:"networkSettings"`
+	CloseConfirmEnabled  bool                `json:"closeConfirmEnabled"`
 	Port                 int                 `json:"port"`
 	Host                 string              `json:"host"`
 	DataDir              string              `json:"dataDir"`
@@ -60,8 +61,9 @@ type NetworkSettings struct {
 
 // SettingsFile 描述本地设置文件结构。
 type SettingsFile struct {
-	ManagementKey string          `json:"managementKey"`
-	Network       NetworkSettings `json:"network"`
+	ManagementKey      string          `json:"managementKey"`
+	Network            NetworkSettings `json:"network"`
+	SkipCloseWindowAsk bool            `json:"skipCloseWindowAsk"`
 }
 
 // ReleaseMeta 统一描述发布信息。

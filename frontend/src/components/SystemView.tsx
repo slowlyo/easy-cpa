@@ -22,6 +22,7 @@ interface SystemViewProps {
   onUpdatePanel: () => void;
   onUpdateCore: () => void;
   onSaveNetworkSettings: () => void;
+  onCloseConfirmEnabledChange: (enabled: boolean) => void;
 }
 
 const UPDATE_TARGET_LABELS: Record<string, string> = {
@@ -78,6 +79,7 @@ export function SystemView({
   onUpdatePanel,
   onUpdateCore,
   onSaveNetworkSettings,
+  onCloseConfirmEnabledChange,
 }: SystemViewProps) {
   const runtimeSummary = state.bootstrapDetail || (state.coreRunning
     ? '当前托管实例状态正常。'
@@ -257,8 +259,18 @@ export function SystemView({
                 保存代理配置
               </button>
             </div>
+            <label className="switch-row">
+              <input
+                type="checkbox"
+                checked={state.closeConfirmEnabled}
+                disabled={busyAction !== ''}
+                onChange={(event) => onCloseConfirmEnabledChange(event.target.checked)}
+              />
+              <span>关闭窗口前弹出确认</span>
+            </label>
             <div className="meta-list">
               <div><span>下载网络</span><strong>{state.githubNetworkLabel || '自动检测'}</strong></div>
+              <div><span>关闭窗口确认</span><strong>{state.closeConfirmEnabled ? '已开启' : '已关闭'}</strong></div>
             </div>
           </article>
         </div>

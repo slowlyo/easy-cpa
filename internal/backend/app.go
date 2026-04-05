@@ -19,6 +19,9 @@ const (
 	stateBootstrapRun   = "running"
 	stateBootstrapReady = "ready"
 	stateBootstrapError = "error"
+	closeButtonConfirm  = "关闭应用"
+	closeButtonSilence  = "关闭并不再询问"
+	closeButtonCancel   = "取消"
 )
 
 // App 负责聚合 easy-cpa 的全部运行状态。
@@ -63,17 +66,18 @@ func NewApp() *App {
 		logs:     logs,
 		panel:    panel,
 		state: BootstrapState{
-			BootstrapPhase:     stateBootstrapIdle,
-			BootstrapStep:      "等待启动",
-			BootstrapDetail:    "应用尚未开始初始化。",
-			AppVersion:         CurrentAppVersion(),
-			GithubProxyMode:    proxy.CurrentMode(),
-			GithubNetworkLabel: proxy.CurrentLabel(),
-			BootstrapHistory:   []BootstrapProgress{},
-			RecentLogs:         []LogEntry{},
-			Port:               defaultPort,
-			DataDir:            paths.RootDir,
-			NetworkSettings:    settings.NetworkSettings(),
+			BootstrapPhase:      stateBootstrapIdle,
+			BootstrapStep:       "等待启动",
+			BootstrapDetail:     "应用尚未开始初始化。",
+			AppVersion:          CurrentAppVersion(),
+			GithubProxyMode:     proxy.CurrentMode(),
+			GithubNetworkLabel:  proxy.CurrentLabel(),
+			BootstrapHistory:    []BootstrapProgress{},
+			RecentLogs:          []LogEntry{},
+			Port:                defaultPort,
+			DataDir:             paths.RootDir,
+			NetworkSettings:     settings.NetworkSettings(),
+			CloseConfirmEnabled: settings.CloseConfirmEnabled(),
 		},
 	}
 	app.runtime = NewCoreRuntime(paths, config, settings, logs, app.emitCoreLog, app.emitCoreStatus)
@@ -110,12 +114,17 @@ func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
 	if !a.runtime.IsRunning() {
 		return false
 	}
+	// 用户关闭了确认提示时直接放行，同时维持核心随应用退出。
+	if !a.settings.CloseConfirmEnabled() {
+		return false
+	}
 	result, err := wruntime.MessageDialog(ctx, wruntime.MessageDialogOptions{
 		Type:          wruntime.QuestionDialog,
 		Title:         "确认关闭 Easy CPA",
 		Message:       "关闭应用后，当前托管的 CPA 核心也会停止运行。确定继续关闭吗？",
-		DefaultButton: "No",
-		CancelButton:  "No",
+		Buttons:       []string{closeButtonConfirm, closeButtonSilence, closeButtonCancel},
+		DefaultButton: closeButtonCancel,
+		CancelButton:  closeButtonCancel,
 	})
 	// 弹窗失败时默认阻止关闭，避免用户在无感知时误停核心。
 	if err != nil {
@@ -125,17 +134,32 @@ func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
 		}
 		return true
 	}
+	// 选择“不再询问”时立即持久化，后续关闭窗口不再弹窗。
+	if shouldDisableCloseConfirm(result) {
+		if err := a.settings.SaveCloseConfirmEnabled(false); err != nil {
+			entry := a.logs.Append("system", fmt.Sprintf("保存关闭确认设置失败: %v", err))
+			if entry.Message != "" {
+				a.emitCoreLog(entry)
+			}
+		}
+		a.refreshState(false)
+	}
 	return !isCloseConfirmed(result)
 }
 
 // isCloseConfirmed 统一判断关闭确认弹窗的肯定结果。
 func isCloseConfirmed(result string) bool {
 	switch strings.ToLower(strings.TrimSpace(result)) {
-	case "yes", "ok", "关闭应用", "确认", "是":
+	case "yes", "ok", "关闭应用", "确认", "是", "关闭并不再询问":
 		return true
 	default:
 		return false
 	}
+}
+
+// shouldDisableCloseConfirm 判断本次关闭是否要求后续不再询问。
+func shouldDisableCloseConfirm(result string) bool {
+	return strings.TrimSpace(result) == closeButtonSilence
 }
 
 // GetBootstrapState 返回当前聚合状态。
@@ -340,6 +364,16 @@ func (a *App) SaveNetworkSettings(settings NetworkSettings) (BootstrapState, err
 	}
 	a.proxy.Reset()
 	a.emitNetworkStatus()
+	a.refreshState(false)
+	return a.snapshotState(), nil
+}
+
+// SaveCloseConfirmEnabled 保存关闭窗口确认开关。
+func (a *App) SaveCloseConfirmEnabled(enabled bool) (BootstrapState, error) {
+	if err := a.settings.SaveCloseConfirmEnabled(enabled); err != nil {
+		a.setLastError(err)
+		return a.snapshotState(), err
+	}
 	a.refreshState(false)
 	return a.snapshotState(), nil
 }
@@ -552,6 +586,7 @@ func (a *App) refreshState(markReady bool) {
 	a.state.GithubProxyMode = a.proxy.CurrentMode()
 	a.state.GithubNetworkLabel = a.proxy.CurrentLabel()
 	a.state.NetworkSettings = a.settings.NetworkSettings()
+	a.state.CloseConfirmEnabled = a.settings.CloseConfirmEnabled()
 	lastError := strings.TrimSpace(runtimeState.LastError)
 	if lastError == "" {
 		lastError = strings.TrimSpace(a.release.LastError())

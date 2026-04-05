@@ -71,6 +71,21 @@ func (s *SettingsStore) SaveNetworkSettings(settings NetworkSettings) error {
 	return s.saveLocked()
 }
 
+// CloseConfirmEnabled 返回关闭窗口确认是否启用。
+func (s *SettingsStore) CloseConfirmEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return !s.data.SkipCloseWindowAsk
+}
+
+// SaveCloseConfirmEnabled 保存关闭窗口确认开关。
+func (s *SettingsStore) SaveCloseConfirmEnabled(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.SkipCloseWindowAsk = !enabled
+	return s.saveLocked()
+}
+
 // EnsureManagementKey 返回已持久化的管理密钥。
 func (s *SettingsStore) EnsureManagementKey() (string, error) {
 	s.mu.Lock()
