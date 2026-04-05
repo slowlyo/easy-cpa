@@ -517,6 +517,7 @@ func (a *App) ensurePanelAsset() error {
 
 // ensureCoreBinary 确保核心二进制存在。
 func (a *App) ensureCoreBinary() error {
+	// 已存在核心文件时直接复用，避免首次引导后重复下载。
 	if FileExists(a.paths.CoreBinaryPath) {
 		return nil
 	}
@@ -524,7 +525,14 @@ func (a *App) ensureCoreBinary() error {
 	if latest.Tag == "" {
 		return errors.New("无法获取核心发布信息")
 	}
-	return a.release.InstallCoreRelease(a.ctx, latest, a.paths, nil)
+	a.emitUpdateProgress("core", "准备安装核心", fmt.Sprintf("检测到本机尚未缓存 CLIProxyAPI，正在准备下载 %s。", latest.Tag), 0, 0)
+	if err := a.release.InstallCoreRelease(a.ctx, latest, a.paths, func(progress DownloadProgress) {
+		a.emitUpdateProgress("core", "下载核心", fmt.Sprintf("首次启动正在下载 CLIProxyAPI %s。", latest.Tag), progress.DownloadedBytes, progress.TotalBytes)
+	}); err != nil {
+		return err
+	}
+	a.finishUpdateProgress("core", "核心安装完成", fmt.Sprintf("CLIProxyAPI %s 已下载完成，正在继续初始化。", latest.Tag))
+	return nil
 }
 
 // refreshLatestReleases 刷新核心和面板发布信息。

@@ -12,6 +12,7 @@ interface PanelViewProps {
  */
 export function PanelView({visible, state, panelFrameURL}: PanelViewProps) {
   const panelReady = Boolean(state.panelInstalled && panelFrameURL);
+  const updateProgress = state.updateProgress;
   const bootstrapHistory = [...(state.bootstrapHistory ?? [])].reverse();
   const panelChecks = [
     {label: '管理页资源', ready: Boolean(state.panelInstalled), detail: state.panelInstalled ? '已缓存' : '未缓存'},
@@ -19,6 +20,19 @@ export function PanelView({visible, state, panelFrameURL}: PanelViewProps) {
     {label: '核心进程', ready: Boolean(state.coreRunning), detail: state.coreRunning ? `PID ${state.process?.pid || '-'}` : '未运行'},
     {label: '管理接口', ready: Boolean(state.managementAPIHealthy), detail: state.managementAPIHealthy ? '已连通' : (state.process?.lastError || state.lastError || '等待探测中')},
   ];
+  const blockingDetail = panelChecks.find((item) => !item.ready)?.detail || '无';
+  const coreInstallPending = !state.coreInstalled;
+  const progressPercent = Math.round((updateProgress?.percent || 0) * 100);
+  const showCoreDownloadProgress = updateProgress?.target === 'core' && Boolean(updateProgress?.stage || updateProgress?.active);
+  const progressLabel = showCoreDownloadProgress
+    ? (updateProgress?.indeterminate ? '下载中' : `${progressPercent}%`)
+    : '准备中';
+  const progressStage = updateProgress?.stage || state.bootstrapStep || '等待启动';
+  const progressDetail = updateProgress?.detail || state.bootstrapDetail || '正在等待新的引导信息。';
+  const leadTitle = coreInstallPending ? '首次准备核心中' : '管理页准备中';
+  const leadDescription = coreInstallPending
+    ? '检测到本机尚未缓存核心，正在下载并初始化，请保持网络通畅。'
+    : '等待本地入口与核心管理接口就绪后，将自动进入官方管理界面。';
 
   return (
     <section className={visible ? 'panel-view active' : 'panel-view hidden'}>
@@ -40,9 +54,34 @@ export function PanelView({visible, state, panelFrameURL}: PanelViewProps) {
         </>
       ) : (
         <div className="empty-state">
-          <h2>管理页准备中</h2>
-          <p>等待本地入口与核心管理接口就绪后，将自动进入官方管理界面。</p>
           <div className="bootstrap-status">
+            <div className="bootstrap-hero" aria-live="polite">
+              <div className="bootstrap-hero-visual" aria-hidden="true">
+                <div className="bootstrap-spinner">
+                  <span className="bootstrap-spinner-ring bootstrap-spinner-ring-outer" />
+                  <span className="bootstrap-spinner-ring bootstrap-spinner-ring-inner" />
+                  <span className="bootstrap-spinner-core" />
+                </div>
+              </div>
+              <div className="bootstrap-hero-copy">
+                <span className="eyebrow">准备中</span>
+                <h2>{leadTitle}</h2>
+                <p>{leadDescription}</p>
+                <div className="bootstrap-progress-panel">
+                  <div className="bootstrap-progress-head">
+                    <strong>{progressStage}</strong>
+                    <span>{progressLabel}</span>
+                  </div>
+                  <div className="progress-track" aria-hidden="true">
+                    <div
+                      className={showCoreDownloadProgress && !updateProgress?.indeterminate ? 'progress-bar' : 'progress-bar indeterminate'}
+                      style={showCoreDownloadProgress && !updateProgress?.indeterminate ? {width: `${Math.max(progressPercent, progressPercent > 0 ? 8 : 0)}%`} : undefined}
+                    />
+                  </div>
+                  <div className="bootstrap-progress-detail">{progressDetail}</div>
+                </div>
+              </div>
+            </div>
             <div className="bootstrap-current">
               <div>
                 <span className="eyebrow">当前步骤</span>
@@ -67,7 +106,7 @@ export function PanelView({visible, state, panelFrameURL}: PanelViewProps) {
               ))}
             </div>
             <div className="bootstrap-detail">
-              当前阻塞：{panelChecks.find((item) => !item.ready)?.detail || '无'}
+              当前阻塞：{blockingDetail}
             </div>
             <div className="bootstrap-history">
               {bootstrapHistory.length > 0 ? bootstrapHistory.map((item, index) => (

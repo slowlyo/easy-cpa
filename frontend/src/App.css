@@ -389,6 +389,112 @@ button,
   gap: 14px;
 }
 
+.bootstrap-hero,
+.bootstrap-progress-panel {
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at right top, rgba(196, 167, 121, 0.14), transparent 32%),
+    linear-gradient(180deg, rgba(31, 26, 21, 0.98), rgba(24, 20, 16, 0.98));
+  box-shadow: var(--shadow);
+}
+
+.bootstrap-hero {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+  padding: 22px 24px;
+  border-radius: 28px;
+}
+
+.bootstrap-hero-copy {
+  display: grid;
+  gap: 12px;
+}
+
+.bootstrap-hero-copy h2 {
+  margin: 0;
+  font-size: 30px;
+}
+
+.bootstrap-hero-copy p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.bootstrap-hero-visual {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at center, rgba(196, 167, 121, 0.12), transparent 58%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+  border: 1px solid rgba(196, 167, 121, 0.08);
+}
+
+.bootstrap-spinner {
+  position: relative;
+  width: 108px;
+  height: 108px;
+}
+
+.bootstrap-spinner-ring,
+.bootstrap-spinner-core {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+.bootstrap-spinner-ring-outer {
+  border: 3px solid rgba(196, 167, 121, 0.12);
+  border-top-color: rgba(223, 198, 155, 0.92);
+  animation: bootstrap-spin 1.2s linear infinite;
+}
+
+.bootstrap-spinner-ring-inner {
+  inset: 16px;
+  border: 2px dashed rgba(196, 167, 121, 0.34);
+  animation: bootstrap-spin-reverse 2.6s linear infinite;
+}
+
+.bootstrap-spinner-core {
+  inset: 34px;
+  background:
+    radial-gradient(circle at 35% 35%, rgba(255, 242, 219, 0.95), rgba(196, 167, 121, 0.18) 58%, rgba(196, 167, 121, 0) 70%);
+  box-shadow: 0 0 34px rgba(223, 198, 155, 0.2);
+  animation: bootstrap-pulse 1.8s ease-in-out infinite;
+}
+
+.bootstrap-progress-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 22px;
+}
+
+.bootstrap-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bootstrap-progress-head strong {
+  font-size: 17px;
+}
+
+.bootstrap-progress-head span {
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.bootstrap-progress-detail {
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
 .bootstrap-current,
 .bootstrap-detail,
 .bootstrap-history-item,
@@ -934,6 +1040,36 @@ button:disabled,
   }
 }
 
+@keyframes bootstrap-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bootstrap-spin-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes bootstrap-pulse {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.82;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 @media (max-width: 1320px) {
   .app-header {
     grid-template-columns: 1fr;
@@ -972,6 +1108,15 @@ button:disabled,
 @media (max-width: 820px) {
   .content-system {
     padding: 12px;
+  }
+
+  .bootstrap-hero {
+    grid-template-columns: 1fr;
+    padding: 18px;
+  }
+
+  .bootstrap-hero-visual {
+    min-height: 148px;
   }
 
   .menu-primary,
@@ -1016,5 +1161,10 @@ button:disabled,
   .panel-overlay-card {
     min-width: 0;
     max-width: none;
+  }
+
+  .bootstrap-progress-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
