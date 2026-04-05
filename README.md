@@ -4,7 +4,7 @@
 
 ## 当前能力
 
-- 启动后自动检查 GitHub latest release
+- 启动后自动检查 GitHub latest release，并每 30 分钟静默刷新一次
 - 首次缺失时自动下载 CPA 核心
 - 独立缓存并托管官方 `management.html`
 - 自动生成并补齐本地托管配置

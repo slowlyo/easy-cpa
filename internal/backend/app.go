@@ -15,6 +15,7 @@ import (
 
 const (
 	defaultPort         = 8317
+	latestCheckInterval = 30 * time.Minute
 	stateBootstrapIdle  = "idle"
 	stateBootstrapRun   = "running"
 	stateBootstrapReady = "ready"
@@ -37,6 +38,7 @@ type App struct {
 	panel            *PanelManager
 	runtime          *CoreRuntime
 	mu               sync.RWMutex
+	releaseRefreshMu sync.Mutex
 	state            BootstrapState
 	bootOnce         sync.Once
 	bootRunning      bool
@@ -89,6 +91,7 @@ func (a *App) Startup(ctx context.Context) {
 	a.ctx, a.cancel = context.WithCancel(ctx)
 	a.bootOnce.Do(func() {
 		go a.bootstrap()
+		go a.watchLatestReleases()
 	})
 }
 
@@ -206,6 +209,27 @@ func (a *App) CheckUpdates() (BootstrapState, error) {
 	}
 	a.refreshState(false)
 	return a.snapshotState(), nil
+}
+
+// watchLatestReleases 定时静默刷新应用、核心与管理页的最新发布信息。
+func (a *App) watchLatestReleases() {
+	ticker := time.NewTicker(latestCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			// 引导仍在执行时跳过本轮，避免后台检查打断启动态展示。
+			if a.isBootRunning() {
+				continue
+			}
+			if err := a.refreshLatestReleasesQuietly(); err != nil {
+				a.setSoftError(err)
+			}
+		}
+	}
 }
 
 // UpdateApp 下载最新应用并在退出后自动替换重启。
@@ -535,22 +559,44 @@ func (a *App) ensureCoreBinary() error {
 	return nil
 }
 
-// refreshLatestReleases 刷新核心和面板发布信息。
+// refreshLatestReleases 刷新应用、核心与管理页发布信息。
 func (a *App) refreshLatestReleases() error {
+	return a.refreshLatestReleasesWithMode(true)
+}
+
+// refreshLatestReleasesQuietly 静默刷新发布信息，供后台定时检查使用。
+func (a *App) refreshLatestReleasesQuietly() error {
+	return a.refreshLatestReleasesWithMode(false)
+}
+
+// refreshLatestReleasesWithMode 按指定模式刷新应用、核心与管理页发布信息。
+func (a *App) refreshLatestReleasesWithMode(reportProgress bool) error {
 	if a.ctx == nil {
 		return errors.New("应用上下文未初始化")
 	}
 
+	a.releaseRefreshMu.Lock()
+	defer a.releaseRefreshMu.Unlock()
+
 	var errs []error
-	a.emitBootstrapProgress("检查核心版本", "正在读取 CLIProxyAPI latest release。")
+	// 只有显式检查或启动引导时才更新进度文案，后台轮询保持静默。
+	if reportProgress {
+		a.emitBootstrapProgress("检查核心版本", "正在读取 CLIProxyAPI latest release。")
+	}
 	if _, err := a.release.FetchLatestCoreRelease(a.ctx); err != nil {
 		errs = append(errs, fmt.Errorf("获取核心发布失败: %w", err))
 	}
-	a.emitBootstrapProgress("检查管理页版本", "正在读取管理界面 latest release。")
+	// 管理页版本与核心版本分开请求，便于前端分别提示更新。
+	if reportProgress {
+		a.emitBootstrapProgress("检查管理页版本", "正在读取管理界面 latest release。")
+	}
 	if _, err := a.release.FetchLatestPanelRelease(a.ctx); err != nil {
 		errs = append(errs, fmt.Errorf("获取管理页发布失败: %w", err))
 	}
-	a.emitBootstrapProgress("检查应用版本", "正在读取 Easy CPA latest release。")
+	// 应用自身更新失败不阻断核心使用，只记录为软错误。
+	if reportProgress {
+		a.emitBootstrapProgress("检查应用版本", "正在读取 Easy CPA latest release。")
+	}
 	if _, err := a.release.FetchLatestAppRelease(a.ctx); err != nil {
 		a.setSoftError(fmt.Errorf("获取应用发布失败: %w", err))
 	}
@@ -561,6 +607,13 @@ func (a *App) refreshLatestReleases() error {
 		return nil
 	}
 	return errors.Join(errs...)
+}
+
+// isBootRunning 返回当前是否仍在执行启动引导。
+func (a *App) isBootRunning() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.bootRunning
 }
 
 // refreshState 从各模块回填聚合状态。
