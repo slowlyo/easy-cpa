@@ -85,9 +85,63 @@ func TestAttachExistingProcessLocked(t *testing.T) {
 	runtime.cancelMonitor()
 }
 
+// TestCoreRuntimeStopReleasesManagedProcessGuard 验证停止时会释放守护句柄。
+func TestCoreRuntimeStopReleasesManagedProcessGuard(t *testing.T) {
+	guard := &testManagedProcessGuard{}
+	runtime := &CoreRuntime{
+		guard:      guard,
+		emitStatus: func(CoreProcessState) {},
+		state: CoreProcessState{
+			Running:           true,
+			ManagementHealthy: true,
+		},
+	}
+
+	if err := runtime.Stop(); err != nil {
+		t.Fatalf("停止核心失败: %v", err)
+	}
+	if !guard.closed {
+		t.Fatalf("应释放守护句柄")
+	}
+	if runtime.guard != nil {
+		t.Fatalf("停止后不应继续持有守护句柄")
+	}
+}
+
+// TestAttachExistingProcessLockedReleasesManagedProcessGuard 验证接管遗留进程前会释放旧守护句柄。
+func TestAttachExistingProcessLockedReleasesManagedProcessGuard(t *testing.T) {
+	guard := &testManagedProcessGuard{}
+	runtime := &CoreRuntime{guard: guard}
+	configState := ConfigState{Host: "127.0.0.1", Port: 8317, ManagementKey: "secret-key"}
+	process := ListeningProcess{
+		PID:       40940,
+		StartedAt: nowForTest(),
+	}
+
+	runtime.attachExistingProcessLocked(context.Background(), process, configState)
+	if !guard.closed {
+		t.Fatalf("接管遗留进程前应释放旧守护句柄")
+	}
+	if runtime.guard != nil {
+		t.Fatalf("接管遗留进程后不应保留旧守护句柄")
+	}
+	runtime.cancelMonitor()
+}
+
 // nowForTest 返回一个稳定的测试时间。
 func nowForTest() time.Time {
 	return time.Date(2026, 4, 5, 12, 15, 18, 0, time.Local)
+}
+
+// testManagedProcessGuard 用于验证守护句柄释放时机。
+type testManagedProcessGuard struct {
+	closed bool
+}
+
+// Close 记录测试守护句柄已被释放。
+func (g *testManagedProcessGuard) Close() error {
+	g.closed = true
+	return nil
 }
 
 // splitTestHostPort 解析 httptest 地址里的主机和端口。

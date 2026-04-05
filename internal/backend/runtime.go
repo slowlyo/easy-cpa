@@ -31,6 +31,7 @@ type CoreRuntime struct {
 	logLineCount  int
 	managedPID    int
 	attached      bool
+	guard         managedProcessGuard
 }
 
 // ManagementConfigSnapshot 描述管理接口暴露出的关键配置。
@@ -54,6 +55,7 @@ func NewCoreRuntime(paths ManagedPaths, config *ConfigManager, settings *Setting
 func (r *CoreRuntime) Start(ctx context.Context, configState ConfigState) error {
 	r.mu.Lock()
 	var bootLogs []string
+	// 已有本地托管子进程时直接复用状态，避免重复启动。
 	if r.cmd != nil && r.state.Running {
 		r.mu.Unlock()
 		return nil
@@ -90,7 +92,14 @@ func (r *CoreRuntime) Start(ctx context.Context, configState ConfigState) error 
 		return fmt.Errorf("启动核心失败: %w", err)
 	}
 
+	guard, guardErr := attachManagedProcessGuard(cmd)
+	// 守护绑定失败时保留启动能力，仅回退到现有的启动自清理逻辑。
+	if guardErr != nil {
+		bootLogs = append(bootLogs, fmt.Sprintf("核心退出联动保护启用失败: %v", guardErr))
+	}
+
 	r.cmd = cmd
+	r.guard = guard
 	r.managedPID = cmd.Process.Pid
 	r.attached = false
 	r.state = CoreProcessState{
@@ -122,14 +131,22 @@ func (r *CoreRuntime) Stop() error {
 	cancel := r.cancelMonitor
 	pid := r.managedPID
 	attached := r.attached
+	guard := r.guard
+	r.guard = nil
 	r.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
 	}
+	// 先释放守护句柄，Windows 下可联动终止整个托管进程树。
+	if guard != nil {
+		_ = guard.Close()
+	}
+	// 当前实例直接持有子进程对象时，仍补一次显式 Kill，兼容非 Windows 平台。
 	if cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	} else if attached && pid > 0 {
+		// 仅接管遗留实例时没有本地 cmd，需要按 PID 补杀。
 		process, err := os.FindProcess(pid)
 		if err != nil {
 			return fmt.Errorf("查找核心进程失败: %w", err)
@@ -138,6 +155,7 @@ func (r *CoreRuntime) Stop() error {
 	}
 	r.mu.Lock()
 	r.cmd = nil
+	r.cancelMonitor = nil
 	r.managedPID = 0
 	r.attached = false
 	r.state.Running = false
@@ -211,13 +229,16 @@ func (r *CoreRuntime) waitProcess(cmd *exec.Cmd) {
 	err := cmd.Wait()
 	r.mu.Lock()
 
+	// 只在仍指向当前子进程时清理运行时句柄，避免误伤后续新进程。
 	if r.cmd == cmd {
 		r.cmd = nil
+		r.releaseManagedProcessGuardLocked()
 	}
 	if r.managedPID == cmd.Process.Pid {
 		r.managedPID = 0
 		r.attached = false
 	}
+	r.cancelMonitor = nil
 	r.state.Running = false
 	r.state.ManagementHealthy = false
 	r.state.ExitedAt = time.Now()
@@ -418,6 +439,7 @@ func (r *CoreRuntime) attachExistingProcessLocked(ctx context.Context, process L
 	if r.cancelMonitor != nil {
 		r.cancelMonitor()
 	}
+	r.releaseManagedProcessGuardLocked()
 	monitorCtx, cancel := context.WithCancel(ctx)
 	r.cancelMonitor = cancel
 	r.cmd = nil
@@ -446,4 +468,14 @@ func (r *CoreRuntime) emitSystemLogs(messages []string) {
 			r.emitLog(entry)
 		}
 	}
+}
+
+// releaseManagedProcessGuardLocked 释放当前托管进程守护句柄。
+func (r *CoreRuntime) releaseManagedProcessGuardLocked() {
+	// 未持有守护句柄时无需处理。
+	if r.guard == nil {
+		return
+	}
+	_ = r.guard.Close()
+	r.guard = nil
 }
