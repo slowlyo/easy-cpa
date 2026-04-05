@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,11 @@ type CoreRuntime struct {
 	logLineCount  int
 	managedPID    int
 	attached      bool
+}
+
+// ManagementConfigSnapshot 描述管理接口暴露出的关键配置。
+type ManagementConfigSnapshot struct {
+	AuthDir string `json:"auth-dir"`
 }
 
 // NewCoreRuntime 创建运行时管理器。
@@ -59,6 +65,7 @@ func (r *CoreRuntime) Start(ctx context.Context, configState ConfigState) error 
 		return err
 	}
 	if r.state.Running {
+		// 接管已存在的托管核心后，不再重复拉起新进程。
 		state := r.state
 		r.mu.Unlock()
 		r.emitSystemLogs(bootLogs)
@@ -255,27 +262,54 @@ func (r *CoreRuntime) monitor(ctx context.Context, configState ConfigState) {
 
 // checkManagementHealth 通过配置接口验证管理 API。
 func (r *CoreRuntime) checkManagementHealth(configState ConfigState) (bool, error) {
+	_, err := r.fetchManagementConfig(configState)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// fetchManagementConfig 读取管理接口配置快照。
+func (r *CoreRuntime) fetchManagementConfig(configState ConfigState) (ManagementConfigSnapshot, error) {
 	url := fmt.Sprintf("http://%s:%d/v0/management/config", hostOrLocal(configState.Host), configState.Port)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return false, err
+		return ManagementConfigSnapshot{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+configState.ManagementKey)
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, err
+		return ManagementConfigSnapshot{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		message := strings.TrimSpace(string(payload))
 		if message != "" {
-			return false, fmt.Errorf("管理接口异常: %s %s", resp.Status, message)
+			return ManagementConfigSnapshot{}, fmt.Errorf("管理接口异常: %s %s", resp.Status, message)
 		}
-		return false, fmt.Errorf("管理接口异常: %s", resp.Status)
+		return ManagementConfigSnapshot{}, fmt.Errorf("管理接口异常: %s", resp.Status)
 	}
-	return true, nil
+	var snapshot ManagementConfigSnapshot
+	if err := json.NewDecoder(resp.Body).Decode(&snapshot); err != nil {
+		return ManagementConfigSnapshot{}, fmt.Errorf("解析管理配置失败: %w", err)
+	}
+	return snapshot, nil
+}
+
+// isManagedConfigSnapshot 判断配置快照是否属于 easy-cpa 托管实例。
+func (r *CoreRuntime) isManagedConfigSnapshot(snapshot ManagementConfigSnapshot) bool {
+	managedAuthDir := normalizeComparablePath(filepath.Join(r.paths.RootDir, "auth"))
+	if managedAuthDir == "" {
+		return false
+	}
+	configuredAuthDir := normalizeComparablePath(snapshot.AuthDir)
+	if configuredAuthDir == "" {
+		return false
+	}
+	// auth-dir 命中 easy-cpa 托管目录时，即可认定为本应用遗留实例。
+	return configuredAuthDir == managedAuthDir || hasComparablePathPrefix(configuredAuthDir, managedAuthDir)
 }
 
 // pullManagementLogs 增量拉取管理日志。
@@ -340,13 +374,28 @@ func (r *CoreRuntime) reconcileExistingProcessLocked(ctx context.Context, config
 	}
 
 	var logs []string
-	managed := process.IsManagedProcess(r.paths.CoreBinaryPath, configState.ConfigPath)
-	if !managed && normalizeComparablePath(process.ExecutablePath) == normalizeComparablePath(r.paths.CoreBinaryPath) {
-		managed = true
+	matchedByProcess := process.IsManagedProcess(r.paths.CoreBinaryPath, configState.ConfigPath)
+	if !matchedByProcess && normalizeComparablePath(process.ExecutablePath) == normalizeComparablePath(r.paths.CoreBinaryPath) {
+		matchedByProcess = true
 	}
-	// 命中托管实例时，统一清理遗留进程，避免异常退出后残留旧状态。
-	if managed {
-		logs = append(logs, fmt.Sprintf("检测到 Easy CPA 遗留核心占用端口 %d，正在清理进程 PID=%d。", configState.Port, process.PID))
+	snapshot, snapshotErr := r.fetchManagementConfig(configState)
+	matchedByConfig := snapshotErr == nil && r.isManagedConfigSnapshot(snapshot)
+
+	// Windows 权限受限时可能读不到路径/命令行，此时回退到管理接口配置指纹判断。
+	if !matchedByProcess && matchedByConfig {
+		logs = append(logs, fmt.Sprintf("检测到占用端口 %d 的进程 PID=%d 未暴露路径，但其 auth-dir=%s 命中 easy-cpa 托管目录。", configState.Port, process.PID, snapshot.AuthDir))
+	}
+
+	// 能确认是 easy-cpa 托管实例且管理接口可用时，优先直接接管，避免 dev 重载反复清理。
+	if matchedByProcess || matchedByConfig {
+		if snapshotErr == nil {
+			r.attachExistingProcessLocked(ctx, process, configState)
+			logs = append(logs, fmt.Sprintf("检测到 Easy CPA 遗留核心占用端口 %d，已直接接管进程 PID=%d。", configState.Port, process.PID))
+			return logs, nil
+		}
+
+		// 已确认是托管实例但接口异常时，再执行强制清理并重启。
+		logs = append(logs, fmt.Sprintf("检测到 Easy CPA 遗留核心占用端口 %d，但管理接口异常，正在清理进程 PID=%d。", configState.Port, process.PID))
 		if err := terminatePID(process.PID); err != nil {
 			return logs, fmt.Errorf("终止遗留核心失败: %w", err)
 		}
@@ -357,13 +406,33 @@ func (r *CoreRuntime) reconcileExistingProcessLocked(ctx context.Context, config
 		return logs, nil
 	}
 
-	healthy, healthErr := r.checkManagementHealth(configState)
-	if healthErr != nil {
-		return logs, fmt.Errorf("端口 %d 已被外部进程占用: PID=%d 路径=%s，且管理接口未通过托管密钥校验: %v", configState.Port, process.PID, process.ExecutablePath, healthErr)
+	if snapshotErr != nil {
+		return logs, fmt.Errorf("端口 %d 已被外部进程占用: PID=%d 路径=%s，且管理接口未通过托管密钥校验: %v", configState.Port, process.PID, process.ExecutablePath, snapshotErr)
 	}
-	// 外部进程即使恰好响应了接口，也不能由 easy-cpa 接管。
-	_ = healthy
-	return logs, fmt.Errorf("端口 %d 已被外部进程占用: PID=%d 路径=%s", configState.Port, process.PID, process.ExecutablePath)
+	// 即使能通过当前密钥访问，只要 auth-dir 不属于托管目录，也不允许 easy-cpa 清理。
+	return logs, fmt.Errorf("端口 %d 已被外部进程占用: PID=%d 路径=%s auth-dir=%s", configState.Port, process.PID, process.ExecutablePath, snapshot.AuthDir)
+}
+
+// attachExistingProcessLocked 接管已存在的托管核心进程。
+func (r *CoreRuntime) attachExistingProcessLocked(ctx context.Context, process ListeningProcess, configState ConfigState) {
+	if r.cancelMonitor != nil {
+		r.cancelMonitor()
+	}
+	monitorCtx, cancel := context.WithCancel(ctx)
+	r.cancelMonitor = cancel
+	r.cmd = nil
+	r.managedPID = process.PID
+	r.attached = true
+	r.state = CoreProcessState{
+		Running:           true,
+		PID:               process.PID,
+		StartedAt:         process.StartedAt,
+		ExitedAt:          time.Time{},
+		ExitCode:          0,
+		LastError:         "",
+		ManagementHealthy: true,
+	}
+	go r.monitor(monitorCtx, configState)
 }
 
 // emitSystemLogs 在锁外补发运行时系统日志。

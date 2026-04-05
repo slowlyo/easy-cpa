@@ -84,23 +84,23 @@ export function SystemView({
     : (state.coreInstalled ? '当前核心已安装但未运行。' : '当前尚未安装核心。'));
   const updateProgress = state.updateProgress;
   const updateBusy = busyAction === 'app' || busyAction === 'core' || busyAction === 'panel';
-  const hasUpdateProgress = Boolean(updateProgress?.target) || updateBusy;
   const updateFailed = updateProgress?.stage === '更新失败';
+  const showUpdateCenter = updateBusy || Boolean(updateProgress?.active) || updateFailed;
   const updateTitle = resolveUpdateTargetLabel(updateProgress?.target || busyAction);
   const updatePercent = Math.round((updateProgress?.percent || 0) * 100);
   const progressLabel = updateFailed
     ? '失败'
     : updateProgress?.indeterminate
-    ? (updateProgress?.active ? '处理中' : (hasUpdateProgress ? '完成' : '待命'))
+    ? (showUpdateCenter ? '处理中' : '待命')
     : `${updatePercent}%`;
   const bytesLabel = updateProgress?.totalBytes > 0
     ? `${formatBytes(updateProgress.downloadedBytes)} / ${formatBytes(updateProgress.totalBytes)}`
     : (updateProgress?.downloadedBytes > 0 ? formatBytes(updateProgress.downloadedBytes) : '等待下载');
-  const updateDetail = hasUpdateProgress
+  const updateDetail = showUpdateCenter
     ? (updateProgress?.detail || '正在准备更新任务。')
     : '检查更新后，可在这里看到下载速度、阶段状态和结果。';
-  const updateStatusLabel = updateFailed ? '失败' : (updateProgress?.active ? '进行中' : (hasUpdateProgress ? '已完成' : '待命'));
-  const updateStatusClass = updateFailed ? 'failed' : (updateProgress?.active ? 'running' : (hasUpdateProgress ? 'done' : 'idle'));
+  const updateStatusLabel = updateFailed ? '失败' : (updateProgress?.active || updateBusy ? '进行中' : '待命');
+  const updateStatusClass = updateFailed ? 'failed' : (updateProgress?.active || updateBusy ? 'running' : 'idle');
   const appButtonLabel = busyAction === 'app' ? '更新应用中' : '更新应用';
   const panelButtonLabel = busyAction === 'panel' ? '更新管理页中' : '更新管理页';
   const coreButtonLabel = busyAction === 'core' ? '更新核心中' : '更新核心';
@@ -175,31 +175,29 @@ export function SystemView({
                 <small>重新加载本地配置</small>
               </button>
             </div>
-            <div className="update-center">
-              <div className="update-center-head">
-                <div>
-                  <span className="eyebrow">更新中心</span>
-                  <strong>{hasUpdateProgress ? updateTitle : '暂无更新任务'}</strong>
+            {showUpdateCenter ? (
+              <div className="update-center">
+                <div className="update-center-head">
+                  <div>
+                    <span className="eyebrow">更新中心</span>
+                    <strong>{updateTitle}</strong>
+                  </div>
+                  <span className={`update-status-pill ${updateStatusClass}`}>{updateStatusLabel}</span>
                 </div>
-                <span className={`update-status-pill ${updateStatusClass}`}>{updateStatusLabel}</span>
-              </div>
-              <p>{updateDetail}</p>
-              <div className="progress-track" aria-hidden="true">
-                {hasUpdateProgress ? (
+                <p>{updateDetail}</p>
+                <div className="progress-track" aria-hidden="true">
                   <div
                     className={updateProgress?.indeterminate ? 'progress-bar indeterminate' : 'progress-bar'}
                     style={updateProgress?.indeterminate ? undefined : {width: `${Math.max(updatePercent, updatePercent > 0 ? 6 : 0)}%`}}
                   />
-                ) : (
-                  <div className="progress-bar progress-bar-idle" style={{width: '18%'}} />
-                )}
+                </div>
+                <div className="update-center-meta">
+                  <span>{updateProgress?.stage || '等待操作'}</span>
+                  <strong>{progressLabel}</strong>
+                  <span>{bytesLabel}</span>
+                </div>
               </div>
-              <div className="update-center-meta">
-                <span>{updateProgress?.stage || '等待操作'}</span>
-                <strong>{progressLabel}</strong>
-                <span>{bytesLabel}</span>
-              </div>
-            </div>
+            ) : null}
             <div className="button-row action-grid update-action-grid">
               <button className="action-button action-button-primary" disabled={busyAction !== '' || !appNeedsUpdate} onClick={onUpdateApp}>
                 <span>{appButtonLabel}</span>

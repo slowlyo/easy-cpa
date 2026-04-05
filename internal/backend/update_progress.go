@@ -50,6 +50,13 @@ func (a *App) finishUpdateProgress(target, stage, detail string) {
 	a.emitBootstrapEvent(stage, detail)
 }
 
+// clearUpdateProgress 清空更新进度，避免成功态长期停留在界面上。
+func (a *App) clearUpdateProgress() {
+	a.mu.Lock()
+	a.state.UpdateProgress = emptyUpdateProgressState()
+	a.mu.Unlock()
+}
+
 // buildUpdateProgressState 组装前端需要的更新进度结构。
 func buildUpdateProgressState(target, stage, detail string, downloadedBytes, totalBytes int64, active bool) UpdateProgressState {
 	progress := UpdateProgressState{
@@ -72,6 +79,17 @@ func buildUpdateProgressState(target, stage, detail string, downloadedBytes, tot
 		}
 	}
 	return progress
+}
+
+// emptyUpdateProgressState 返回空闲态更新进度。
+func emptyUpdateProgressState() UpdateProgressState {
+	return UpdateProgressState{
+		Active:        false,
+		Target:        "",
+		Stage:         "",
+		Detail:        "",
+		Indeterminate: true,
+	}
 }
 
 // emitBootstrapEvent 统一广播引导事件。

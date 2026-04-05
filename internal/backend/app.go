@@ -204,6 +204,7 @@ func (a *App) UpdateApp() (BootstrapState, error) {
 	currentVersion := CurrentAppVersion()
 	if currentVersion != "dev" && CompareReleaseTags(currentVersion, meta.Tag) >= 0 {
 		a.finishUpdateProgress("app", "无需更新应用", fmt.Sprintf("当前已是最新版本 %s。", currentVersion))
+		a.clearUpdateProgress()
 		a.refreshState(false)
 		return a.snapshotState(), nil
 	}
@@ -252,6 +253,7 @@ func (a *App) UpdatePanel() (BootstrapState, error) {
 	// 本地版本已匹配时直接返回，避免重复下载同一份管理页。
 	if local.Tag == meta.Tag && FileExists(a.paths.PanelHTMLPath) {
 		a.finishUpdateProgress("panel", "管理页已最新", fmt.Sprintf("当前已缓存管理页 %s。", meta.Tag))
+		a.clearUpdateProgress()
 		a.refreshState(false)
 		return a.snapshotState(), nil
 	}
@@ -263,6 +265,7 @@ func (a *App) UpdatePanel() (BootstrapState, error) {
 		return a.snapshotState(), err
 	}
 	a.finishUpdateProgress("panel", "管理页更新完成", fmt.Sprintf("管理页已更新到 %s。", meta.Tag))
+	a.clearUpdateProgress()
 	a.refreshState(false)
 	return a.snapshotState(), nil
 }
@@ -278,6 +281,7 @@ func (a *App) UpdateCore() (BootstrapState, error) {
 	// 本地核心已是目标版本时不再重复安装，避免无意义重启。
 	if local.Tag == meta.Tag && FileExists(a.paths.CoreBinaryPath) {
 		a.finishUpdateProgress("core", "核心已最新", fmt.Sprintf("当前核心已是 %s。", meta.Tag))
+		a.clearUpdateProgress()
 		a.refreshState(false)
 		return a.snapshotState(), nil
 	}
@@ -308,6 +312,7 @@ func (a *App) UpdateCore() (BootstrapState, error) {
 	}
 
 	a.finishUpdateProgress("core", "核心更新完成", fmt.Sprintf("核心已更新到 %s。", meta.Tag))
+	a.clearUpdateProgress()
 	a.refreshState(false)
 	return a.snapshotState(), nil
 }

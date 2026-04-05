@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,27 +43,12 @@ func (m *PanelManager) Start(apiBase, managementKey string) error {
 		m.lastKey = signature
 	}
 
-	m.handler = func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-			html := BuildPanelBootstrapHTML(apiBase, managementKey)
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = w.Write([]byte(html))
-			return
-		}
-		if r.URL.Path == "/management.html" && FileExists(m.paths.PanelHTMLPath) {
-			html, err := BuildManagedPanelHTML(m.paths.PanelHTMLPath)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = w.Write([]byte(html))
-			return
-		}
-		http.NotFound(w, r)
-	}
-
 	if m.server != nil {
+		handler, err := m.buildHandler(apiBase, managementKey)
+		if err != nil {
+			return err
+		}
+		m.handler = handler
 		return nil
 	}
 
@@ -72,6 +59,14 @@ func (m *PanelManager) Start(apiBase, managementKey string) error {
 
 	m.listener = listener
 	m.url = fmt.Sprintf("http://%s", listener.Addr().String())
+	handler, err := m.buildHandler(apiBase, managementKey)
+	if err != nil {
+		_ = listener.Close()
+		m.listener = nil
+		m.url = ""
+		return err
+	}
+	m.handler = handler
 	m.server = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.mu.RLock()
 		handler := m.handler
@@ -109,6 +104,57 @@ func (m *PanelManager) URL() string {
 	return fmt.Sprintf("%s/?v=%d", m.url, m.revision)
 }
 
+// buildHandler 组装管理页包装页与 API 同源代理。
+func (m *PanelManager) buildHandler(apiBase, managementKey string) (http.HandlerFunc, error) {
+	proxy, err := m.buildAPIProxy(apiBase)
+	if err != nil {
+		return nil, err
+	}
+	panelBase := m.url
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/" || r.URL.Path == "/index.html":
+			html := BuildPanelBootstrapHTML(panelBase, managementKey)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(html))
+			return
+		case r.URL.Path == "/management.html" && FileExists(m.paths.PanelHTMLPath):
+			html, err := BuildManagedPanelHTML(m.paths.PanelHTMLPath)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(html))
+			return
+		case proxy != nil:
+			proxy.ServeHTTP(w, r)
+			return
+		default:
+			http.NotFound(w, r)
+		}
+	}, nil
+}
+
+// buildAPIProxy 创建指向核心管理接口的本地反向代理。
+func (m *PanelManager) buildAPIProxy(apiBase string) (*httputil.ReverseProxy, error) {
+	target, err := url.Parse(strings.TrimSpace(apiBase))
+	if err != nil {
+		return nil, fmt.Errorf("解析管理接口地址失败: %w", err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	director := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		director(req)
+		req.Host = target.Host
+	}
+	// 代理异常时直接返回清晰错误，避免官方页面只看到空白失败。
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, proxyErr error) {
+		http.Error(w, fmt.Sprintf("转发管理接口失败: %v", proxyErr), http.StatusBadGateway)
+	}
+	return proxy, nil
+}
+
 // Install 下载并更新管理页文件。
 func (m *PanelManager) Install(ctx context.Context, meta ReleaseMeta, progress func(DownloadProgress)) error {
 	if err := os.MkdirAll(m.paths.PanelDir, 0o755); err != nil {
@@ -144,13 +190,83 @@ func BuildPanelBootstrapHTML(apiBase, managementKey string) string {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Easy CPA Panel</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #12100d;
+      color: #f3ede3;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at top, rgba(199, 160, 107, .18), transparent 42%%),
+        #12100d;
+    }
+    .boot-card {
+      width: min(360px, calc(100vw - 32px));
+      padding: 24px;
+      border: 1px solid #3a332c;
+      border-radius: 16px;
+      background: rgba(29, 25, 21, .92);
+      box-shadow: 0 18px 42px rgba(0, 0, 0, .32);
+    }
+    .boot-title {
+      margin: 0 0 12px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .boot-detail {
+      margin: 0;
+      color: #c7bdae;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+  </style>
 </head>
 <body>
+  <div class="boot-card">
+    <h1 class="boot-title">管理页准备中</h1>
+    <p class="boot-detail" id="boot-detail">正在等待管理接口就绪。</p>
+  </div>
 <script>
-  localStorage.setItem("apiBase", %q);
-  localStorage.setItem("managementKey", %q);
-  localStorage.setItem("isLoggedIn", "true");
-  location.replace("/management.html");
+  const apiBase = %q;
+  const managementKey = %q;
+  const detailElement = document.getElementById("boot-detail");
+
+  // 只有在管理接口已健康时才跳转官方页，避免自动登录过早失败后停在认证页。
+  const waitForManagementAPI = async () => {
+    const headers = managementKey ? {"Authorization": "Bearer " + managementKey} : {};
+    for (;;) {
+      try {
+        const response = await fetch("/v0/management/config", {
+          method: "GET",
+          headers,
+          cache: "no-store",
+        });
+        if (response.ok) {
+          localStorage.setItem("apiBase", apiBase);
+          localStorage.setItem("managementKey", managementKey);
+          localStorage.setItem("isLoggedIn", "true");
+          location.replace("/management.html");
+          return;
+        }
+
+        // 接口尚未健康时继续轮询，避免把官方页推进到登录页终态。
+        detailElement.textContent = "正在等待管理接口响应（" + response.status + "）。";
+      } catch (_error) {
+        // 核心尚未监听或代理未连通时，保持等待态即可。
+        detailElement.textContent = "正在等待核心进程启动并暴露管理接口。";
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+    }
+  };
+
+  void waitForManagementAPI();
 </script>
 </body>
 </html>`, apiBase, managementKey)
