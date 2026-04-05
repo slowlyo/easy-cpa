@@ -24,6 +24,36 @@ interface SystemViewProps {
   onSaveNetworkSettings: () => void;
 }
 
+const UPDATE_TARGET_LABELS: Record<string, string> = {
+  app: '应用更新',
+  core: '核心更新',
+  panel: '管理页更新',
+};
+
+/**
+ * formatBytes 将字节数转换成易读文案。
+ */
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '-';
+  }
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size >= 10 || unitIndex === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+/**
+ * resolveUpdateTargetLabel 返回当前更新任务的标题。
+ */
+function resolveUpdateTargetLabel(target: string): string {
+  return UPDATE_TARGET_LABELS[target] || '更新中心';
+}
+
 /**
  * SystemView 渲染系统页信息与操作面板。
  */
@@ -52,6 +82,29 @@ export function SystemView({
   const runtimeSummary = state.bootstrapDetail || (state.coreRunning
     ? '当前托管实例状态正常。'
     : (state.coreInstalled ? '当前核心已安装但未运行。' : '当前尚未安装核心。'));
+  const updateProgress = state.updateProgress;
+  const updateBusy = busyAction === 'app' || busyAction === 'core' || busyAction === 'panel';
+  const hasUpdateProgress = Boolean(updateProgress?.target) || updateBusy;
+  const updateFailed = updateProgress?.stage === '更新失败';
+  const updateTitle = resolveUpdateTargetLabel(updateProgress?.target || busyAction);
+  const updatePercent = Math.round((updateProgress?.percent || 0) * 100);
+  const progressLabel = updateFailed
+    ? '失败'
+    : updateProgress?.indeterminate
+    ? (updateProgress?.active ? '处理中' : (hasUpdateProgress ? '完成' : '待命'))
+    : `${updatePercent}%`;
+  const bytesLabel = updateProgress?.totalBytes > 0
+    ? `${formatBytes(updateProgress.downloadedBytes)} / ${formatBytes(updateProgress.totalBytes)}`
+    : (updateProgress?.downloadedBytes > 0 ? formatBytes(updateProgress.downloadedBytes) : '等待下载');
+  const updateDetail = hasUpdateProgress
+    ? (updateProgress?.detail || '正在准备更新任务。')
+    : '检查更新后，可在这里看到下载速度、阶段状态和结果。';
+  const updateStatusLabel = updateFailed ? '失败' : (updateProgress?.active ? '进行中' : (hasUpdateProgress ? '已完成' : '待命'));
+  const updateStatusClass = updateFailed ? 'failed' : (updateProgress?.active ? 'running' : (hasUpdateProgress ? 'done' : 'idle'));
+  const appButtonLabel = busyAction === 'app' ? '更新应用中' : '更新应用';
+  const panelButtonLabel = busyAction === 'panel' ? '更新管理页中' : '更新管理页';
+  const coreButtonLabel = busyAction === 'core' ? '更新核心中' : '更新核心';
+  const checkButtonLabel = busyAction === 'check' ? '检查中' : '检查更新';
 
   return (
     <section className={visible ? 'system-view active' : 'system-view hidden'}>
@@ -108,16 +161,62 @@ export function SystemView({
               <h2>运维操作</h2>
               <span>核心与管理页</span>
             </div>
-            <div className="button-row">
-              <button disabled={busyAction !== '' || state.coreRunning} onClick={onStartCore}>启动核心</button>
-              <button disabled={busyAction !== '' || !state.coreRunning} onClick={onStopCore}>停止核心</button>
-              <button disabled={busyAction !== '' || !state.coreInstalled} onClick={onRestartCore}>重启核心</button>
+            <div className="button-row action-grid">
+              <button className="action-button action-button-neutral" disabled={busyAction !== '' || state.coreRunning} onClick={onStartCore}>
+                <span>启动核心</span>
+                <small>拉起当前托管实例</small>
+              </button>
+              <button className="action-button action-button-neutral" disabled={busyAction !== '' || !state.coreRunning} onClick={onStopCore}>
+                <span>停止核心</span>
+                <small>安全停止当前进程</small>
+              </button>
+              <button className="action-button action-button-neutral" disabled={busyAction !== '' || !state.coreInstalled} onClick={onRestartCore}>
+                <span>重启核心</span>
+                <small>重新加载本地配置</small>
+              </button>
             </div>
-            <div className="button-row">
-              <button disabled={busyAction !== '' || !appNeedsUpdate} onClick={onUpdateApp}>更新应用</button>
-              <button disabled={busyAction !== ''} onClick={onCheckUpdates}>检查更新</button>
-              <button disabled={busyAction !== '' || !panelNeedsUpdate} onClick={onUpdatePanel}>更新管理页</button>
-              <button disabled={busyAction !== '' || !coreNeedsUpdate} onClick={onUpdateCore}>更新核心</button>
+            <div className="update-center">
+              <div className="update-center-head">
+                <div>
+                  <span className="eyebrow">更新中心</span>
+                  <strong>{hasUpdateProgress ? updateTitle : '暂无更新任务'}</strong>
+                </div>
+                <span className={`update-status-pill ${updateStatusClass}`}>{updateStatusLabel}</span>
+              </div>
+              <p>{updateDetail}</p>
+              <div className="progress-track" aria-hidden="true">
+                {hasUpdateProgress ? (
+                  <div
+                    className={updateProgress?.indeterminate ? 'progress-bar indeterminate' : 'progress-bar'}
+                    style={updateProgress?.indeterminate ? undefined : {width: `${Math.max(updatePercent, updatePercent > 0 ? 6 : 0)}%`}}
+                  />
+                ) : (
+                  <div className="progress-bar progress-bar-idle" style={{width: '18%'}} />
+                )}
+              </div>
+              <div className="update-center-meta">
+                <span>{updateProgress?.stage || '等待操作'}</span>
+                <strong>{progressLabel}</strong>
+                <span>{bytesLabel}</span>
+              </div>
+            </div>
+            <div className="button-row action-grid update-action-grid">
+              <button className="action-button action-button-primary" disabled={busyAction !== '' || !appNeedsUpdate} onClick={onUpdateApp}>
+                <span>{appButtonLabel}</span>
+                <small>{state.appLatestVersion || '无可用版本'}</small>
+              </button>
+              <button className="action-button action-button-secondary" disabled={busyAction !== '' || !coreNeedsUpdate} onClick={onUpdateCore}>
+                <span>{coreButtonLabel}</span>
+                <small>{state.coreLatestVersion || '无可用版本'}</small>
+              </button>
+              <button className="action-button action-button-secondary" disabled={busyAction !== '' || !panelNeedsUpdate} onClick={onUpdatePanel}>
+                <span>{panelButtonLabel}</span>
+                <small>{state.panelLatestVersion || '无可用版本'}</small>
+              </button>
+              <button className="action-button action-button-ghost" disabled={busyAction !== ''} onClick={onCheckUpdates}>
+                <span>{checkButtonLabel}</span>
+                <small>{state.githubNetworkLabel || '自动检测'}</small>
+              </button>
             </div>
             <div className="meta-list">
               <div><span>应用更新提示</span><strong>{appNeedsUpdate ? '可更新' : (state.appVersion === 'dev' ? '开发版' : '已最新或未知')}</strong></div>

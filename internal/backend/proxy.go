@@ -87,7 +87,7 @@ func (p *ProxyManager) Do(ctx context.Context, req *http.Request) (*http.Respons
 }
 
 // Download 执行下载并写入目标 Writer。
-func (p *ProxyManager) Download(ctx context.Context, requestURL string, headers map[string]string, writer io.Writer) (string, error) {
+func (p *ProxyManager) Download(ctx context.Context, requestURL string, headers map[string]string, writer io.Writer, progress func(DownloadProgress)) (string, error) {
 	candidates := p.candidates()
 	var errs []error
 
@@ -116,7 +116,7 @@ func (p *ProxyManager) Download(ctx context.Context, requestURL string, headers 
 				err = describeGitHubFailure(resp)
 				return
 			}
-			_, err = io.Copy(writer, resp.Body)
+			err = copyDownloadWithProgress(writer, resp.Body, resp.ContentLength, progress)
 		}()
 
 		if err == nil {
@@ -133,6 +133,67 @@ func (p *ProxyManager) Download(ctx context.Context, requestURL string, headers 
 		return "", errors.New("没有可用的 GitHub 下载通道")
 	}
 	return "", errors.Join(errs...)
+}
+
+// copyDownloadWithProgress 在复制响应体时按节流频率回传字节进度。
+func copyDownloadWithProgress(writer io.Writer, reader io.Reader, totalBytes int64, progress func(DownloadProgress)) error {
+	if totalBytes < 0 {
+		totalBytes = 0
+	}
+	if progress != nil {
+		progress(DownloadProgress{DownloadedBytes: 0, TotalBytes: totalBytes})
+	}
+
+	buffer := make([]byte, 32*1024)
+	var downloadedBytes int64
+	var lastReportedBytes int64
+	lastReportedAt := time.Now()
+
+	for {
+		readBytes, readErr := reader.Read(buffer)
+		if readBytes > 0 {
+			writtenBytes, writeErr := writer.Write(buffer[:readBytes])
+			if writtenBytes > 0 {
+				downloadedBytes += int64(writtenBytes)
+				// 下载过程只在时间片、百分比变化或结束时广播，避免事件过于频繁。
+				if progress != nil && shouldReportDownloadProgress(downloadedBytes, totalBytes, lastReportedBytes, lastReportedAt) {
+					progress(DownloadProgress{DownloadedBytes: downloadedBytes, TotalBytes: totalBytes})
+					lastReportedBytes = downloadedBytes
+					lastReportedAt = time.Now()
+				}
+			}
+			if writeErr != nil {
+				return writeErr
+			}
+			if writtenBytes != readBytes {
+				return io.ErrShortWrite
+			}
+		}
+		// 读到 EOF 时补发一次终态，确保前端看到 100%。
+		if errors.Is(readErr, io.EOF) {
+			if progress != nil && downloadedBytes != lastReportedBytes {
+				progress(DownloadProgress{DownloadedBytes: downloadedBytes, TotalBytes: totalBytes})
+			}
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+}
+
+// shouldReportDownloadProgress 判断当前字节进度是否值得推送一次事件。
+func shouldReportDownloadProgress(downloadedBytes, totalBytes, lastReportedBytes int64, lastReportedAt time.Time) bool {
+	if totalBytes > 0 && downloadedBytes >= totalBytes {
+		return true
+	}
+	if time.Since(lastReportedAt) >= 160*time.Millisecond {
+		return true
+	}
+	if totalBytes > 0 && lastReportedBytes < totalBytes {
+		return float64(downloadedBytes-lastReportedBytes)/float64(totalBytes) >= 0.01
+	}
+	return false
 }
 
 // candidates 计算代理尝试顺序。

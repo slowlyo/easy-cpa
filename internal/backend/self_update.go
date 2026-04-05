@@ -27,9 +27,13 @@ func (a *App) prepareSelfUpdate(ctx context.Context, meta ReleaseMeta) error {
 	}
 
 	archivePath := filepath.Join(workDir, meta.AssetName)
-	if err := downloadFile(ctx, a.proxy, meta.DownloadURL, archivePath); err != nil {
+	a.emitUpdateProgress("app", "下载应用更新", fmt.Sprintf("正在下载 Easy CPA %s。", meta.Tag), 0, 0)
+	if err := downloadFile(ctx, a.proxy, meta.DownloadURL, archivePath, func(progress DownloadProgress) {
+		a.emitUpdateProgress("app", "下载应用更新", fmt.Sprintf("正在下载 Easy CPA %s。", meta.Tag), progress.DownloadedBytes, progress.TotalBytes)
+	}); err != nil {
 		return err
 	}
+	a.emitUpdateProgress("app", "校验更新包", fmt.Sprintf("已下载 %s，正在校验完整性。", meta.Tag), 0, 0)
 	if err := verifySHA256(archivePath, meta.SHA256); err != nil {
 		return err
 	}
@@ -38,6 +42,7 @@ func (a *App) prepareSelfUpdate(ctx context.Context, meta ReleaseMeta) error {
 	if err := os.MkdirAll(extractedDir, 0o755); err != nil {
 		return fmt.Errorf("创建更新解压目录失败: %w", err)
 	}
+	a.emitUpdateProgress("app", "解压更新包", fmt.Sprintf("正在解压 Easy CPA %s。", meta.Tag), 0, 0)
 	if err := extractArchive(archivePath, extractedDir); err != nil {
 		return err
 	}
@@ -46,6 +51,7 @@ func (a *App) prepareSelfUpdate(ctx context.Context, meta ReleaseMeta) error {
 	if err != nil {
 		return fmt.Errorf("读取当前应用路径失败: %w", err)
 	}
+	a.emitUpdateProgress("app", "准备替换程序", fmt.Sprintf("已完成资源准备，正在生成 %s 的替换方案。", meta.Tag), 0, 0)
 	plan, err := buildSelfUpdatePlan(executablePath, extractedDir, workDir)
 	if err != nil {
 		return err

@@ -110,7 +110,7 @@ func (m *PanelManager) URL() string {
 }
 
 // Install 下载并更新管理页文件。
-func (m *PanelManager) Install(ctx context.Context, meta ReleaseMeta) error {
+func (m *PanelManager) Install(ctx context.Context, meta ReleaseMeta, progress func(DownloadProgress)) error {
 	if err := os.MkdirAll(m.paths.PanelDir, 0o755); err != nil {
 		return fmt.Errorf("创建面板目录失败: %w", err)
 	}
@@ -118,7 +118,7 @@ func (m *PanelManager) Install(ctx context.Context, meta ReleaseMeta) error {
 		return fmt.Errorf("创建临时目录失败: %w", err)
 	}
 	tempPath := filepath.Join(m.paths.TmpDir, meta.AssetName)
-	if err := downloadFile(ctx, m.proxy, meta.DownloadURL, tempPath); err != nil {
+	if err := downloadFile(ctx, m.proxy, meta.DownloadURL, tempPath, progress); err != nil {
 		return err
 	}
 	defer os.Remove(tempPath)

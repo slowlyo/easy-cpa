@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -98,7 +99,7 @@ func TestDownloadFallsBackAfterBodyReadFailure(t *testing.T) {
 	}
 	defer file.Close()
 
-	mode, err := manager.Download(t.Context(), target.URL, map[string]string{"User-Agent": "easy-cpa-test"}, file)
+	mode, err := manager.Download(t.Context(), target.URL, map[string]string{"User-Agent": "easy-cpa-test"}, file, nil)
 	if err != nil {
 		t.Fatalf("download should fallback successfully, got error: %v", err)
 	}
@@ -115,6 +116,37 @@ func TestDownloadFallsBackAfterBodyReadFailure(t *testing.T) {
 	}
 	if string(content) != "healthy-payload" {
 		t.Fatalf("unexpected output content: %s", string(content))
+	}
+}
+
+// TestCopyDownloadWithProgress 验证下载过程会回传开始与结束进度。
+func TestCopyDownloadWithProgress(t *testing.T) {
+	t.Helper()
+
+	targetPath := filepath.Join(t.TempDir(), "asset.bin")
+	file, err := os.Create(targetPath)
+	if err != nil {
+		t.Fatalf("create output file failed: %v", err)
+	}
+	defer file.Close()
+
+	payload := []byte("0123456789abcdef")
+	progresses := make([]DownloadProgress, 0, 4)
+	if err := copyDownloadWithProgress(file, strings.NewReader(string(payload)), int64(len(payload)), func(progress DownloadProgress) {
+		progresses = append(progresses, progress)
+	}); err != nil {
+		t.Fatalf("copy with progress failed: %v", err)
+	}
+
+	if len(progresses) < 2 {
+		t.Fatalf("expected at least 2 progress callbacks, got %d", len(progresses))
+	}
+	if progresses[0].DownloadedBytes != 0 {
+		t.Fatalf("expected initial progress to start at 0, got %d", progresses[0].DownloadedBytes)
+	}
+	last := progresses[len(progresses)-1]
+	if last.DownloadedBytes != int64(len(payload)) || last.TotalBytes != int64(len(payload)) {
+		t.Fatalf("unexpected final progress: %+v", last)
 	}
 }
 

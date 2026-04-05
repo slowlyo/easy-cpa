@@ -9,6 +9,18 @@ type BootstrapProgress struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// UpdateProgressState 描述当前更新任务的进度。
+type UpdateProgressState struct {
+	Active          bool    `json:"active"`
+	Target          string  `json:"target"`
+	Stage           string  `json:"stage"`
+	Detail          string  `json:"detail"`
+	DownloadedBytes int64   `json:"downloadedBytes"`
+	TotalBytes      int64   `json:"totalBytes"`
+	Percent         float64 `json:"percent"`
+	Indeterminate   bool    `json:"indeterminate"`
+}
+
 // BootstrapState 描述前端需要展示的聚合状态。
 type BootstrapState struct {
 	BootstrapPhase       string              `json:"bootstrapPhase"`
@@ -16,6 +28,7 @@ type BootstrapState struct {
 	BootstrapDetail      string              `json:"bootstrapDetail"`
 	BootstrapUpdatedAt   time.Time           `json:"bootstrapUpdatedAt"`
 	BootstrapHistory     []BootstrapProgress `json:"bootstrapHistory"`
+	UpdateProgress       UpdateProgressState `json:"updateProgress"`
 	AppVersion           string              `json:"appVersion"`
 	AppLatestVersion     string              `json:"appLatestVersion"`
 	AppNeedsUpdate       bool                `json:"appNeedsUpdate"`

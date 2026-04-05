@@ -203,10 +203,11 @@ func (a *App) UpdateApp() (BootstrapState, error) {
 	}
 	currentVersion := CurrentAppVersion()
 	if currentVersion != "dev" && CompareReleaseTags(currentVersion, meta.Tag) >= 0 {
+		a.finishUpdateProgress("app", "无需更新应用", fmt.Sprintf("当前已是最新版本 %s。", currentVersion))
 		a.refreshState(false)
 		return a.snapshotState(), nil
 	}
-	a.emitBootstrapProgress("准备应用更新", fmt.Sprintf("正在下载 Easy CPA %s 并准备重启更新。", meta.Tag))
+	a.emitUpdateProgress("app", "准备应用更新", fmt.Sprintf("正在下载 Easy CPA %s 并准备重启更新。", meta.Tag), 0, 0)
 	if err := a.prepareSelfUpdate(a.ctx, meta); err != nil {
 		a.setLastError(err)
 		return a.snapshotState(), err
@@ -218,6 +219,17 @@ func (a *App) UpdateApp() (BootstrapState, error) {
 	a.state.BootstrapStep = "应用更新中"
 	a.state.BootstrapDetail = fmt.Sprintf("已下载 %s，正在退出并自动重启完成更新。", meta.Tag)
 	a.state.BootstrapUpdatedAt = time.Now()
+	completed := a.state.UpdateProgress
+	completed.Active = false
+	completed.Target = "app"
+	completed.Stage = "应用更新中"
+	completed.Detail = a.state.BootstrapDetail
+	completed.Indeterminate = false
+	if completed.TotalBytes > 0 {
+		completed.DownloadedBytes = completed.TotalBytes
+	}
+	completed.Percent = 1
+	a.state.UpdateProgress = completed
 	a.appendBootstrapHistoryLocked("应用更新中", a.state.BootstrapDetail)
 	a.mu.Unlock()
 	go func() {
@@ -236,10 +248,21 @@ func (a *App) UpdatePanel() (BootstrapState, error) {
 		a.setLastError(err)
 		return a.snapshotState(), err
 	}
-	if err := a.panel.Install(a.ctx, meta); err != nil {
+	local := ReadReleaseMetaFile(a.paths.PanelMetaPath)
+	// 本地版本已匹配时直接返回，避免重复下载同一份管理页。
+	if local.Tag == meta.Tag && FileExists(a.paths.PanelHTMLPath) {
+		a.finishUpdateProgress("panel", "管理页已最新", fmt.Sprintf("当前已缓存管理页 %s。", meta.Tag))
+		a.refreshState(false)
+		return a.snapshotState(), nil
+	}
+	a.emitUpdateProgress("panel", "准备更新管理页", fmt.Sprintf("正在下载管理页 %s。", meta.Tag), 0, 0)
+	if err := a.panel.Install(a.ctx, meta, func(progress DownloadProgress) {
+		a.emitUpdateProgress("panel", "下载管理页", fmt.Sprintf("正在下载管理页 %s。", meta.Tag), progress.DownloadedBytes, progress.TotalBytes)
+	}); err != nil {
 		a.setLastError(err)
 		return a.snapshotState(), err
 	}
+	a.finishUpdateProgress("panel", "管理页更新完成", fmt.Sprintf("管理页已更新到 %s。", meta.Tag))
 	a.refreshState(false)
 	return a.snapshotState(), nil
 }
@@ -251,27 +274,40 @@ func (a *App) UpdateCore() (BootstrapState, error) {
 		a.setLastError(err)
 		return a.snapshotState(), err
 	}
+	local := ReadReleaseMetaFile(a.paths.CoreMetaPath)
+	// 本地核心已是目标版本时不再重复安装，避免无意义重启。
+	if local.Tag == meta.Tag && FileExists(a.paths.CoreBinaryPath) {
+		a.finishUpdateProgress("core", "核心已最新", fmt.Sprintf("当前核心已是 %s。", meta.Tag))
+		a.refreshState(false)
+		return a.snapshotState(), nil
+	}
+	a.emitUpdateProgress("core", "准备更新核心", fmt.Sprintf("正在准备更新 CLIProxyAPI %s。", meta.Tag), 0, 0)
 
 	wasRunning := a.runtime.IsRunning()
 	if wasRunning {
+		a.emitUpdateProgress("core", "停止核心进程", "检测到核心正在运行，先停止旧进程。", 0, 0)
 		if err := a.runtime.Stop(); err != nil {
 			a.setLastError(err)
 			return a.snapshotState(), err
 		}
 	}
 
-	if err := a.release.InstallCoreRelease(a.ctx, meta, a.paths); err != nil {
+	if err := a.release.InstallCoreRelease(a.ctx, meta, a.paths, func(progress DownloadProgress) {
+		a.emitUpdateProgress("core", "下载核心更新", fmt.Sprintf("正在下载 CLIProxyAPI %s。", meta.Tag), progress.DownloadedBytes, progress.TotalBytes)
+	}); err != nil {
 		a.setLastError(err)
 		return a.snapshotState(), err
 	}
 
 	if wasRunning {
+		a.emitUpdateProgress("core", "重启核心进程", "新版本已安装，正在重新启动核心。", 0, 0)
 		if err := a.ensureConfigAndRuntime(false); err != nil {
 			a.setLastError(err)
 			return a.snapshotState(), err
 		}
 	}
 
+	a.finishUpdateProgress("core", "核心更新完成", fmt.Sprintf("核心已更新到 %s。", meta.Tag))
 	a.refreshState(false)
 	return a.snapshotState(), nil
 }
@@ -437,7 +473,7 @@ func (a *App) ensurePanelAsset() error {
 	if local.Tag == latest.Tag && FileExists(a.paths.PanelHTMLPath) {
 		return nil
 	}
-	return a.panel.Install(a.ctx, latest)
+	return a.panel.Install(a.ctx, latest, nil)
 }
 
 // ensureCoreBinary 确保核心二进制存在。
@@ -449,7 +485,7 @@ func (a *App) ensureCoreBinary() error {
 	if latest.Tag == "" {
 		return errors.New("无法获取核心发布信息")
 	}
-	return a.release.InstallCoreRelease(a.ctx, latest, a.paths)
+	return a.release.InstallCoreRelease(a.ctx, latest, a.paths, nil)
 }
 
 // refreshLatestReleases 刷新核心和面板发布信息。
@@ -548,6 +584,13 @@ func (a *App) setLastError(err error) {
 	a.state.BootstrapDetail = err.Error()
 	a.state.BootstrapUpdatedAt = time.Now()
 	a.state.LastError = err.Error()
+	// 更新过程报错时保留失败现场，便于前端展示终态。
+	if a.state.UpdateProgress.Active {
+		a.state.UpdateProgress.Active = false
+		a.state.UpdateProgress.Stage = "更新失败"
+		a.state.UpdateProgress.Detail = err.Error()
+		a.state.UpdateProgress.Indeterminate = true
+	}
 	a.appendBootstrapHistoryLocked("引导失败", err.Error())
 	a.mu.Unlock()
 	entry := a.logs.Append("system", err.Error())
@@ -583,17 +626,25 @@ func (a *App) emitBootstrapProgress(stage, detail string) {
 	a.state.BootstrapUpdatedAt = now
 	a.appendBootstrapHistoryLocked(stage, detail)
 	a.mu.Unlock()
-	if a.ctx != nil {
-		wruntime.EventsEmit(a.ctx, "bootstrap:progress", map[string]string{"stage": stage, "detail": detail})
-	}
+	a.emitBootstrapEvent(stage, detail)
 }
 
 // appendBootstrapHistoryLocked 记录最近的引导步骤。
 func (a *App) appendBootstrapHistoryLocked(stage, detail string) {
+	now := time.Now()
+	// 同阶段进度只更新最后一条，避免下载过程把历史刷满。
+	if size := len(a.state.BootstrapHistory); size > 0 {
+		last := &a.state.BootstrapHistory[size-1]
+		if last.Stage == stage {
+			last.Detail = detail
+			last.Timestamp = now
+			return
+		}
+	}
 	entry := BootstrapProgress{
 		Stage:     stage,
 		Detail:    detail,
-		Timestamp: time.Now(),
+		Timestamp: now,
 	}
 	a.state.BootstrapHistory = append(a.state.BootstrapHistory, entry)
 	if len(a.state.BootstrapHistory) > 8 {

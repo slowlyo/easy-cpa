@@ -125,7 +125,7 @@ func (r *ReleaseManager) FetchLatestPanelRelease(ctx context.Context) (ReleaseMe
 }
 
 // InstallCoreRelease 下载并安装核心。
-func (r *ReleaseManager) InstallCoreRelease(ctx context.Context, meta ReleaseMeta, paths ManagedPaths) error {
+func (r *ReleaseManager) InstallCoreRelease(ctx context.Context, meta ReleaseMeta, paths ManagedPaths, progress func(DownloadProgress)) error {
 	if meta.DownloadURL == "" {
 		return errors.New("核心下载地址为空")
 	}
@@ -134,7 +134,7 @@ func (r *ReleaseManager) InstallCoreRelease(ctx context.Context, meta ReleaseMet
 	}
 
 	tempPath := filepath.Join(paths.TmpDir, meta.AssetName)
-	if err := downloadFile(ctx, r.proxy, meta.DownloadURL, tempPath); err != nil {
+	if err := downloadFile(ctx, r.proxy, meta.DownloadURL, tempPath, progress); err != nil {
 		return err
 	}
 	defer os.Remove(tempPath)
@@ -204,7 +204,7 @@ func fetchJSON(ctx context.Context, proxy *ProxyManager, requestURL string, head
 }
 
 // downloadFile 下载文件到本地。
-func downloadFile(ctx context.Context, proxy *ProxyManager, requestURL, targetPath string) error {
+func downloadFile(ctx context.Context, proxy *ProxyManager, requestURL, targetPath string, progress func(DownloadProgress)) error {
 	file, err := os.Create(targetPath)
 	if err != nil {
 		return fmt.Errorf("创建下载文件失败: %w", err)
@@ -216,7 +216,7 @@ func downloadFile(ctx context.Context, proxy *ProxyManager, requestURL, targetPa
 		"User-Agent":           "easy-cpa",
 		"X-GitHub-Api-Version": "2022-11-28",
 	}
-	if _, err := proxy.Download(ctx, requestURL, headers, file); err != nil {
+	if _, err := proxy.Download(ctx, requestURL, headers, file, progress); err != nil {
 		return fmt.Errorf("下载发布资产失败: %w", err)
 	}
 	return nil
