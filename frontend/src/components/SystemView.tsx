@@ -11,6 +11,7 @@ interface SystemViewProps {
   appNeedsUpdate: boolean;
   coreNeedsUpdate: boolean;
   panelNeedsUpdate: boolean;
+  networkSettingsDirty: boolean;
   onLogFilterChange: (value: string) => void;
   onNetworkProxyEnabledChange: (enabled: boolean) => void;
   onNetworkProxyURLChange: (value: string) => void;
@@ -68,6 +69,7 @@ export function SystemView({
   appNeedsUpdate,
   coreNeedsUpdate,
   panelNeedsUpdate,
+  networkSettingsDirty,
   onLogFilterChange,
   onNetworkProxyEnabledChange,
   onNetworkProxyURLChange,
@@ -249,11 +251,11 @@ export function SystemView({
               onChange={(event) => onNetworkProxyURLChange(event.target.value)}
             />
             <div className="network-hint">
-              未设置自定义代理时，程序会自动按直连、7890、7897 顺序检测可用网络。
+              {networkSettingsDirty ? '当前有未保存的代理改动。' : '未设置自定义代理时，程序会自动按直连、7890、7897 顺序检测可用网络。'}
             </div>
             <div className="button-row single">
               <button
-                disabled={busyAction !== ''}
+                disabled={busyAction !== '' || !networkSettingsDirty}
                 onClick={onSaveNetworkSettings}
               >
                 保存代理配置

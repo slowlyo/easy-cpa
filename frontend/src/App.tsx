@@ -1,4 +1,4 @@
-import {startTransition, useDeferredValue, useEffect, useMemo, useState} from 'react';
+import {startTransition, useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
 import './App.css';
 import {
   CheckUpdates,
@@ -23,6 +23,24 @@ import {appendLog, createEmptyState} from './utils/appState';
 type ViewMode = 'panel' | 'system';
 
 /**
+ * buildNetworkSettings 统一构造网络设置模型。
+ */
+function buildNetworkSettings(source?: Partial<backend.NetworkSettings> | null): backend.NetworkSettings {
+  return new backend.NetworkSettings({
+    githubProxyEnabled: Boolean(source?.githubProxyEnabled),
+    githubProxyURL: source?.githubProxyURL ?? '',
+  });
+}
+
+/**
+ * sameNetworkSettings 判断两份网络设置是否一致。
+ */
+function sameNetworkSettings(left?: Partial<backend.NetworkSettings> | null, right?: Partial<backend.NetworkSettings> | null): boolean {
+  return Boolean(left?.githubProxyEnabled) === Boolean(right?.githubProxyEnabled)
+    && (left?.githubProxyURL ?? '') === (right?.githubProxyURL ?? '');
+}
+
+/**
  * 根组件负责驱动托管界面。
  */
 function App() {
@@ -30,27 +48,70 @@ function App() {
   const [state, setState] = useState<backend.BootstrapState>(createEmptyState());
   const [busyAction, setBusyAction] = useState('');
   const [notice, setNotice] = useState('');
-  const [networkSettings, setNetworkSettings] = useState<backend.NetworkSettings>(new backend.NetworkSettings({
-    githubProxyEnabled: false,
-    githubProxyURL: '',
-  }));
+  const [networkSettings, setNetworkSettings] = useState<backend.NetworkSettings>(buildNetworkSettings());
+  const [networkSettingsDirty, setNetworkSettingsDirty] = useState(false);
   const [logFilter, setLogFilter] = useState('');
   const [panelFrameURL, setPanelFrameURL] = useState('');
   const deferredLogFilter = useDeferredValue(logFilter);
+  const networkSettingsRef = useRef<backend.NetworkSettings>(buildNetworkSettings());
+  const syncedNetworkSettingsRef = useRef<backend.NetworkSettings>(buildNetworkSettings());
+  const networkSettingsDirtyRef = useRef(false);
+
+  /**
+   * applyBootstrapState 同步后端状态，并保护未保存的代理草稿。
+   */
+  const applyBootstrapState = (next: backend.BootstrapState, forceSyncNetwork = false) => {
+    const resolved = new backend.BootstrapState(next);
+    const syncedNetworkSettings = buildNetworkSettings(resolved.networkSettings);
+    syncedNetworkSettingsRef.current = syncedNetworkSettings;
+
+    const shouldSyncNetwork = forceSyncNetwork
+      || !networkSettingsDirtyRef.current
+      || sameNetworkSettings(networkSettingsRef.current, syncedNetworkSettings);
+
+    // 后端设置与草稿一致时直接收敛，避免保存成功后界面残留脏状态。
+    if (shouldSyncNetwork) {
+      networkSettingsRef.current = syncedNetworkSettings;
+      networkSettingsDirtyRef.current = false;
+    }
+
+    startTransition(() => {
+      setState(resolved);
+      // 草稿存在未保存改动时只更新后端状态，避免定时刷新覆盖用户输入。
+      if (shouldSyncNetwork) {
+        setNetworkSettings(syncedNetworkSettings);
+        setNetworkSettingsDirty(false);
+      }
+      if (resolved.panelURL) {
+        setPanelFrameURL((current: string) => current === resolved.panelURL ? current : resolved.panelURL);
+      }
+    });
+  };
+
+  /**
+   * updateDraftNetworkSettings 更新本地网络设置草稿。
+   */
+  const updateDraftNetworkSettings = (patch: Partial<backend.NetworkSettings>) => {
+    const next = buildNetworkSettings({
+      ...networkSettingsRef.current,
+      ...patch,
+    });
+    const dirty = !sameNetworkSettings(next, syncedNetworkSettingsRef.current);
+    networkSettingsRef.current = next;
+    networkSettingsDirtyRef.current = dirty;
+
+    startTransition(() => {
+      setNetworkSettings(next);
+      setNetworkSettingsDirty(dirty);
+    });
+  };
 
   /**
    * 拉取后端聚合状态。
    */
   const refreshState = async () => {
     const next = await GetBootstrapState();
-    startTransition(() => {
-      const resolved = new backend.BootstrapState(next);
-      setState(resolved);
-      setNetworkSettings(new backend.NetworkSettings(resolved.networkSettings));
-      if (resolved.panelURL) {
-        setPanelFrameURL((current: string) => current === resolved.panelURL ? current : resolved.panelURL);
-      }
-    });
+    applyBootstrapState(next);
   };
 
   /**
@@ -61,11 +122,7 @@ function App() {
     setNotice('');
     try {
       const next = await action();
-      startTransition(() => {
-        const resolved = new backend.BootstrapState(next);
-        setState(resolved);
-        setNetworkSettings(new backend.NetworkSettings(resolved.networkSettings));
-      });
+      applyBootstrapState(next, label === 'network');
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setNotice(message);
@@ -96,14 +153,7 @@ function App() {
         if (!mounted) {
           return;
         }
-        startTransition(() => {
-          const resolved = new backend.BootstrapState(next);
-          setState(resolved);
-          setNetworkSettings(new backend.NetworkSettings(resolved.networkSettings));
-          if (resolved.panelURL) {
-            setPanelFrameURL(resolved.panelURL);
-          }
-        });
+        applyBootstrapState(next, true);
       } catch (error: unknown) {
         if (mounted) {
           setNotice(error instanceof Error ? error.message : String(error));
@@ -199,15 +249,14 @@ function App() {
           appNeedsUpdate={appNeedsUpdate}
           coreNeedsUpdate={coreNeedsUpdate}
           panelNeedsUpdate={panelNeedsUpdate}
+          networkSettingsDirty={networkSettingsDirty}
           onLogFilterChange={setLogFilter}
-          onNetworkProxyEnabledChange={(enabled) => setNetworkSettings(new backend.NetworkSettings({
-            ...networkSettings,
+          onNetworkProxyEnabledChange={(enabled) => updateDraftNetworkSettings({
             githubProxyEnabled: enabled,
-          }))}
-          onNetworkProxyURLChange={(value) => setNetworkSettings(new backend.NetworkSettings({
-            ...networkSettings,
+          })}
+          onNetworkProxyURLChange={(value) => updateDraftNetworkSettings({
             githubProxyURL: value,
-          }))}
+          })}
           onStartCore={() => void runAction('start', StartCore)}
           onStopCore={() => void runAction('stop', StopCore)}
           onRestartCore={() => void runAction('restart', RestartCore)}
@@ -215,7 +264,7 @@ function App() {
           onCheckUpdates={() => void runAction('check', CheckUpdates)}
           onUpdatePanel={() => void runAction('panel', UpdatePanel)}
           onUpdateCore={() => void runAction('core', UpdateCore)}
-          onSaveNetworkSettings={() => void runAction('network', () => SaveNetworkSettings(networkSettings))}
+          onSaveNetworkSettings={() => void runAction('network', () => SaveNetworkSettings(networkSettingsRef.current))}
           onCloseConfirmEnabledChange={(enabled) => void runAction('close-confirm', () => SaveCloseConfirmEnabled(enabled))}
         />
       </main>

@@ -45,6 +45,8 @@ type App struct {
 	closingForUpdate bool
 }
 
+type releaseFetcher func(context.Context) (ReleaseMeta, error)
+
 // NewApp 创建应用主实例。
 func NewApp() *App {
 	paths, err := ResolveManagedPaths()
@@ -211,6 +213,17 @@ func (a *App) CheckUpdates() (BootstrapState, error) {
 	return a.snapshotState(), nil
 }
 
+// fetchLatestReleaseForUpdate 刷新目标发布信息，并同步本次自动代理检测结果。
+func (a *App) fetchLatestReleaseForUpdate(fetch releaseFetcher) (ReleaseMeta, error) {
+	meta, err := fetch(a.ctx)
+	a.emitNetworkStatus()
+	a.refreshState(false)
+	if err != nil {
+		return ReleaseMeta{}, err
+	}
+	return meta, nil
+}
+
 // watchLatestReleases 定时静默刷新应用、核心与管理页的最新发布信息。
 func (a *App) watchLatestReleases() {
 	ticker := time.NewTicker(latestCheckInterval)
@@ -239,7 +252,7 @@ func (a *App) UpdateApp() (BootstrapState, error) {
 		a.setLastError(err)
 		return a.snapshotState(), err
 	}
-	meta, err := a.release.FetchLatestAppRelease(a.ctx)
+	meta, err := a.fetchLatestReleaseForUpdate(a.release.FetchLatestAppRelease)
 	if err != nil {
 		a.setLastError(err)
 		return a.snapshotState(), err
@@ -292,7 +305,7 @@ func (a *App) UpdateApp() (BootstrapState, error) {
 
 // UpdatePanel 手动更新官方管理页。
 func (a *App) UpdatePanel() (BootstrapState, error) {
-	meta, err := a.release.FetchLatestPanelRelease(a.ctx)
+	meta, err := a.fetchLatestReleaseForUpdate(a.release.FetchLatestPanelRelease)
 	if err != nil {
 		a.setLastError(err)
 		return a.snapshotState(), err
@@ -320,7 +333,7 @@ func (a *App) UpdatePanel() (BootstrapState, error) {
 
 // UpdateCore 手动更新核心并在必要时重启。
 func (a *App) UpdateCore() (BootstrapState, error) {
-	meta, err := a.release.FetchLatestCoreRelease(a.ctx)
+	meta, err := a.fetchLatestReleaseForUpdate(a.release.FetchLatestCoreRelease)
 	if err != nil {
 		a.setLastError(err)
 		return a.snapshotState(), err
