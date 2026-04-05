@@ -237,6 +237,28 @@ func BuildPanelBootstrapHTML(apiBase, managementKey string) string {
   const managementKey = %q;
   const detailElement = document.getElementById("boot-detail");
 
+  // 启动阶段的 5xx 多半只是核心尚未就绪，不直接展示原始状态码，避免误导用户。
+  const renderWaitingDetail = (status) => {
+    if (typeof status !== "number" || !Number.isFinite(status) || status <= 0) {
+      detailElement.textContent = "正在等待核心进程启动并暴露管理接口。";
+      return;
+    }
+
+    // 5xx 代表代理或核心短暂未就绪，统一收口为启动中提示。
+    if (status >= 500) {
+      detailElement.textContent = "正在等待核心进程启动并暴露管理接口。";
+      return;
+    }
+
+    // 4xx 已有接口响应，通常是启动中的认证态切换，继续等待即可。
+    if (status == 401 || status == 403) {
+      detailElement.textContent = "管理接口已响应，正在同步认证信息。";
+      return;
+    }
+
+    detailElement.textContent = "管理接口正在初始化，请稍候。";
+  };
+
   // 只有在管理接口已健康时才跳转官方页，避免自动登录过早失败后停在认证页。
   const waitForManagementAPI = async () => {
     const headers = managementKey ? {"Authorization": "Bearer " + managementKey} : {};
@@ -256,10 +278,10 @@ func BuildPanelBootstrapHTML(apiBase, managementKey string) string {
         }
 
         // 接口尚未健康时继续轮询，避免把官方页推进到登录页终态。
-        detailElement.textContent = "正在等待管理接口响应（" + response.status + "）。";
+        renderWaitingDetail(response.status);
       } catch (_error) {
         // 核心尚未监听或代理未连通时，保持等待态即可。
-        detailElement.textContent = "正在等待核心进程启动并暴露管理接口。";
+        renderWaitingDetail(0);
       }
 
       await new Promise((resolve) => window.setTimeout(resolve, 500));

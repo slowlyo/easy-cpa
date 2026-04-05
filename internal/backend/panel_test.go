@@ -26,6 +26,15 @@ func TestBuildPanelBootstrapHTML(t *testing.T) {
 	if !strings.Contains(html, `fetch("/v0/management/config"`) {
 		t.Fatalf("health probe not found in bootstrap html")
 	}
+	if !strings.Contains(html, `const renderWaitingDetail = (status) => {`) {
+		t.Fatalf("waiting detail helper not found in bootstrap html")
+	}
+	if !strings.Contains(html, `if (status >= 500) {`) {
+		t.Fatalf("5xx waiting fallback not found in bootstrap html")
+	}
+	if strings.Contains(html, `正在等待管理接口响应（" + response.status + "）。"`) {
+		t.Fatalf("raw status prompt should not be shown in bootstrap html")
+	}
 	if !strings.Contains(html, `location.replace("/management.html")`) {
 		t.Fatalf("redirect not found in bootstrap html")
 	}
