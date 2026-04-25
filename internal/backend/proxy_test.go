@@ -35,11 +35,15 @@ func TestProxyCandidatesWithCustom(t *testing.T) {
 	}
 	manager := NewProxyManager(store, NewLogBuffer(10))
 	list := manager.candidates()
-	if len(list) != 1 {
+	if len(list) != 4 {
 		t.Fatalf("unexpected candidate count: %d", len(list))
 	}
+	// 自定义代理仍应优先，但后面要保留自动回退链路。
 	if list[0].mode != "custom" {
 		t.Fatalf("unexpected custom candidate order: %+v", list)
+	}
+	if list[1].mode != "direct" || list[2].mode != "fallback-7890" || list[3].mode != "fallback-7897" {
+		t.Fatalf("unexpected fallback chain after custom proxy: %+v", list)
 	}
 }
 
@@ -116,6 +120,41 @@ func TestDownloadFallsBackAfterBodyReadFailure(t *testing.T) {
 	}
 	if string(content) != "healthy-payload" {
 		t.Fatalf("unexpected output content: %s", string(content))
+	}
+}
+
+// TestClientForCandidateReusesTransport 验证同一代理配置会复用客户端，避免重复握手拖慢请求。
+func TestClientForCandidateReusesTransport(t *testing.T) {
+	manager := NewProxyManager(NewSettingsStore(t.TempDir()+"/settings.json"), NewLogBuffer(10))
+	candidate := proxyCandidate{mode: "direct"}
+
+	first, err := manager.clientForCandidate(candidate, apiRequestProfile)
+	if err != nil {
+		t.Fatalf("create first client failed: %v", err)
+	}
+	second, err := manager.clientForCandidate(candidate, apiRequestProfile)
+	if err != nil {
+		t.Fatalf("create second client failed: %v", err)
+	}
+	if first != second {
+		t.Fatalf("expected cached client to be reused")
+	}
+}
+
+// TestResetClearsClientCache 验证设置变更后会清掉旧代理客户端缓存。
+func TestResetClearsClientCache(t *testing.T) {
+	manager := NewProxyManager(NewSettingsStore(t.TempDir()+"/settings.json"), NewLogBuffer(10))
+	if _, err := manager.clientForCandidate(proxyCandidate{mode: "direct"}, apiRequestProfile); err != nil {
+		t.Fatalf("create cached client failed: %v", err)
+	}
+	if len(manager.clients) == 0 {
+		t.Fatalf("expected client cache to be populated")
+	}
+
+	manager.Reset()
+
+	if len(manager.clients) != 0 {
+		t.Fatalf("expected client cache to be cleared after reset")
 	}
 }
 
