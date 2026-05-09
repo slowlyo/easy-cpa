@@ -34,6 +34,9 @@ type githubReleaseAsset struct {
 	Digest             string `json:"digest"`
 }
 
+// releaseAssetMatcher 判断发布资产是否匹配当前平台。
+type releaseAssetMatcher func(asset githubReleaseAsset) bool
+
 // ReleaseManager 负责解析 GitHub 发布与下载安装。
 type ReleaseManager struct {
 	proxy       *ProxyManager
@@ -246,12 +249,12 @@ func verifySHA256(path, expected string) error {
 
 // pickCoreAsset 选择当前平台核心资产。
 func pickCoreAsset(assets []githubReleaseAsset) (githubReleaseAsset, bool) {
-	suffix, err := expectedCoreAssetSuffix()
+	matcher, err := expectedCoreAssetMatcher()
 	if err != nil {
 		return githubReleaseAsset{}, false
 	}
 	for _, asset := range assets {
-		if strings.HasSuffix(asset.Name, suffix) {
+		if matcher(asset) {
 			return asset, true
 		}
 	}
@@ -282,9 +285,9 @@ func pickPanelAsset(assets []githubReleaseAsset) (githubReleaseAsset, bool) {
 	return githubReleaseAsset{}, false
 }
 
-// expectedCoreAssetSuffix 计算当前平台资产后缀。
-func expectedCoreAssetSuffix() (string, error) {
-	return expectedCoreAssetSuffixFor(runtime.GOOS, runtime.GOARCH)
+// expectedCoreAssetMatcher 计算当前平台资产匹配器。
+func expectedCoreAssetMatcher() (releaseAssetMatcher, error) {
+	return expectedCoreAssetMatcherFor(runtime.GOOS, runtime.GOARCH)
 }
 
 // expectedAppAssetSuffix 计算当前平台应用资产后缀。
@@ -306,32 +309,50 @@ func expectedAppAssetSuffixFor(goos string) (string, error) {
 	}
 }
 
-// expectedCoreAssetSuffixFor 根据平台计算资产后缀。
-func expectedCoreAssetSuffixFor(goos, goarch string) (string, error) {
+// expectedCoreAssetMatcherFor 根据平台计算资产匹配器。
+func expectedCoreAssetMatcherFor(goos, goarch string) (releaseAssetMatcher, error) {
+	suffixes, err := expectedCoreAssetSuffixesFor(goos, goarch)
+	if err != nil {
+		return nil, err
+	}
+	return func(asset githubReleaseAsset) bool {
+		for _, suffix := range suffixes {
+			// 兼容上游历史命名和当前命名，避免因架构别名差异导致升级失败。
+			if strings.HasSuffix(asset.Name, suffix) {
+				return true
+			}
+		}
+		return false
+	}, nil
+}
+
+// expectedCoreAssetSuffixesFor 根据平台计算可兼容的资产后缀集合。
+func expectedCoreAssetSuffixesFor(goos, goarch string) ([]string, error) {
 	switch goos {
 	case "windows":
 		switch goarch {
 		case "amd64":
-			return "_windows_amd64.zip", nil
+			return []string{"_windows_amd64.zip"}, nil
 		case "arm64":
-			return "_windows_arm64.zip", nil
+			// 优先兼容上游实际使用的 aarch64 命名，同时保留 arm64 兜底。
+			return []string{"_windows_aarch64.zip", "_windows_arm64.zip"}, nil
 		}
 	case "linux":
 		switch goarch {
 		case "amd64":
-			return "_linux_amd64.tar.gz", nil
+			return []string{"_linux_amd64.tar.gz"}, nil
 		case "arm64":
-			return "_linux_arm64.tar.gz", nil
+			return []string{"_linux_aarch64.tar.gz", "_linux_arm64.tar.gz"}, nil
 		}
 	case "darwin":
 		switch goarch {
 		case "amd64":
-			return "_darwin_amd64.tar.gz", nil
+			return []string{"_darwin_amd64.tar.gz"}, nil
 		case "arm64":
-			return "_darwin_arm64.tar.gz", nil
+			return []string{"_darwin_aarch64.tar.gz", "_darwin_arm64.tar.gz"}, nil
 		}
 	}
-	return "", fmt.Errorf("不支持当前平台: %s/%s", goos, goarch)
+	return nil, fmt.Errorf("不支持当前平台: %s/%s", goos, goarch)
 }
 
 // WriteReleaseMetaFile 保存发布元信息。
